@@ -1,0 +1,9 @@
+﻿data_private/
+outputs/
+*.xls
+*.xlsx
+*.mat
+*.nc
+.env
+__pycache__/
+*.pyc
