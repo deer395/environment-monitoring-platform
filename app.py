@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.anomaly import calculate_intraday_anomaly
+from src.anomaly import calculate_configured_anomaly
 from src.loaders import load_excel_variable
 from src.manual_qc import (
     REVIEW_DECISIONS,
@@ -31,13 +31,18 @@ from src.report_tables import (
     build_depth_daily_range_table,
     build_qc_log_table,
     build_qc_summary_table,
+    build_summary_workbook_sheets,
     build_temperature_monthly_table,
 )
-from src.resampling import resample_daily_mean, resample_hourly_mean
-from src.variable_registry import get_variable_metadata, list_v1_variables
+from src.resampling import resample_configured
+from src.variable_registry import VARIABLE_REGISTRY, get_variable_metadata, list_enabled_variables
 
 DATA_DIR = PROJECT_ROOT / "data_private"
-DEFAULT_FILES = {"depth": DATA_DIR / "depth.xls", "temperature": DATA_DIR / "temp.xls"}
+DEFAULT_FILES = {
+    key: DATA_DIR / (metadata.get("default_file") or metadata.get("default_file_name"))
+    for key, metadata in VARIABLE_REGISTRY.items()
+    if metadata.get("default_file") or metadata.get("default_file_name")
+}
 
 
 def _uploaded_bytes(uploaded_file):
@@ -68,6 +73,14 @@ def _source_args(variable_key, uploaded_file):
         "uploaded_bytes": uploaded,
         "uploaded_suffix": suffix,
     }
+
+
+def _state_key(variable_key, name):
+    return f"{variable_key}:{name}"
+
+
+def _current_state_key(name):
+    return _state_key(st.session_state.get("current_variable_key", ""), name)
 
 
 def _qc_params_key(variable_key):
@@ -143,12 +156,24 @@ def _get_auto_qc_assets(variable_key, source_args, start_ts, end_ts, enable_rang
 
 
 def _run_after_qc(variable_key, final_qc_data, qc_summary):
-    hourly = resample_hourly_mean(final_qc_data)
-    daily = resample_daily_mean(final_qc_data)
-    anomaly = calculate_intraday_anomaly(hourly, daily)
-    metrics = calculate_metrics(variable_key, hourly, daily, anomaly)
-    basic_row = build_basic_statistics_row(variable_key, hourly, metrics, qc_summary)
-    return hourly, daily, anomaly, metrics, basic_row
+    metadata = get_variable_metadata(variable_key)
+    resampled = resample_configured(final_qc_data, metadata)
+    anomaly = calculate_configured_anomaly(resampled, metadata)
+    metric_source = resampled.get("hourly")
+    if metric_source is None:
+        metric_source = resampled.get("daily")
+    if metric_source is None:
+        metric_source = final_qc_data
+    metrics = calculate_metrics(
+        variable_key,
+        metric_source,
+        resampled.get("daily"),
+        anomaly,
+        metadata=metadata,
+        base_data=metric_source,
+    )
+    basic_row = build_basic_statistics_row(variable_key, metric_source, metrics, qc_summary)
+    return resampled, anomaly, metrics, basic_row
 
 
 def _health_table(raw, qc_summary, final_qc_data=None):
@@ -310,22 +335,22 @@ def _apply_selected_decision(table, record_ids, decision):
 
 
 def _set_selected_decision(decision):
-    table = st.session_state.get("review_table")
-    ids = st.session_state.get("selected_record_ids", [])
+    table = st.session_state.get(_current_state_key("review_table"))
+    ids = st.session_state.get(_current_state_key("selected_record_ids"), [])
     if table is not None:
-        st.session_state["review_table"] = _apply_selected_decision(table, ids, decision)
-        st.session_state["qc_confirmed"] = False
+        st.session_state[_current_state_key("review_table")] = _apply_selected_decision(table, ids, decision)
+        st.session_state[_current_state_key("qc_confirmed")] = False
 
 
 def _clear_selection():
-    st.session_state["selected_record_ids"] = []
+    st.session_state[_current_state_key("selected_record_ids")] = []
 
 
 def _set_range_decision(start_ts, end_ts, decision):
-    table = st.session_state.get("review_table")
+    table = st.session_state.get(_current_state_key("review_table"))
     if table is not None:
-        st.session_state["review_table"] = _apply_range_decision(table, start_ts, end_ts, decision)
-        st.session_state["qc_confirmed"] = False
+        st.session_state[_current_state_key("review_table")] = _apply_range_decision(table, start_ts, end_ts, decision)
+        st.session_state[_current_state_key("qc_confirmed")] = False
 
 
 def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
@@ -378,8 +403,7 @@ def _excel_bytes(sheets):
     return output.getvalue()
 
 
-def _summary_workbook_bytes(depth_upload, temp_upload, date_range, enable_range, enable_hampel, enable_constant, current_variable, current_final_qc_data, current_qc_summary, current_final_qc_log):
-    uploads = {"depth": depth_upload, "temperature": temp_upload}
+def _summary_workbook_bytes(uploads, date_range, enable_range, enable_hampel, enable_constant, current_variable, current_final_qc_data, current_qc_summary, current_final_qc_log):
     all_rows, all_qc, all_metrics, all_logs = [], {}, {}, []
     start_ts = pd.Timestamp(date_range[0])
     end_ts = pd.Timestamp(date_range[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
@@ -393,34 +417,34 @@ def _summary_workbook_bytes(depth_upload, temp_upload, date_range, enable_range,
         else:
             final_qc, final_log = apply_manual_qc_decisions(raw, auto_qc, qc_log)
             summary_for_stats = qc_summary
-        hourly, daily, anomaly, metrics, row = _run_after_qc(key, final_qc, summary_for_stats)
+        resampled, anomaly, metrics, row = _run_after_qc(key, final_qc, summary_for_stats)
         all_rows.append(row)
         all_qc[key] = summary_for_stats
         all_metrics[key] = metrics
         if final_log is not None:
             all_logs.append(final_log)
-    return _excel_bytes({
-        "basic_statistics": build_basic_statistics_table(all_rows),
-        "temperature_monthly": build_temperature_monthly_table(all_metrics["temperature"]),
-        "depth_daily_range": build_depth_daily_range_table(all_metrics["depth"]),
-        "qc_summary": build_qc_summary_table(all_qc),
-        "final_qc_log": build_qc_log_table(pd.concat(all_logs, ignore_index=True) if all_logs else None),
-    })
-
+    combined_log = pd.concat(all_logs, ignore_index=True) if all_logs else None
+    sheets = build_summary_workbook_sheets(all_rows, all_qc, all_metrics, combined_log)
+    return _excel_bytes(sheets)
 
 def main():
     st.set_page_config(page_title="海洋牧场 V2 Stage 4.1 质控", layout="wide")
     st.title("海洋牧场 V2 Stage 4.1 质控工作流")
     st.caption("自动规则先处理；算法候选和人工质控在同一复核区完成。后续分析只使用 final_qc_data。")
 
-    depth_upload = st.sidebar.file_uploader("上传水深 Excel", type=["xls", "xlsx"], key="depth_upload")
-    temp_upload = st.sidebar.file_uploader("上传温度 Excel", type=["xls", "xlsx"], key="temp_upload")
-    variable_key = st.sidebar.selectbox("变量选择", list_v1_variables(), format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
+    variable_keys = list(list_enabled_variables())
+    uploads = {}
+    for key in variable_keys:
+        metadata = get_variable_metadata(key)
+        label = f"??{metadata.get('display_name_cn', key)} Excel"
+        uploads[key] = st.sidebar.file_uploader(label, type=["xls", "xlsx"], key=f"{key}_upload")
+    variable_key = st.sidebar.selectbox("????", variable_keys, format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
+    st.session_state["current_variable_key"] = variable_key
     enable_range = st.sidebar.checkbox("启用物理合理范围质控（自动删除）", value=True)
     enable_hampel = st.sidebar.checkbox("启用 Hampel 候选标记（仅标记）", value=True)
     enable_constant = st.sidebar.checkbox("启用连续恒定值标记（仅标记）", value=True)
 
-    uploaded = depth_upload if variable_key == "depth" else temp_upload
+    uploaded = uploads.get(variable_key)
     source_args = _source_args(variable_key, uploaded)
     st.info(f"当前数据源：{_source_label(variable_key, uploaded)}")
 
@@ -436,24 +460,24 @@ def main():
         start_ts = pd.Timestamp(date_range[0])
         end_ts = pd.Timestamp(date_range[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         token = f"{variable_key}|{source_args['source_signature']}|{start_ts.isoformat()}|{end_ts.isoformat()}|{enable_range}|{enable_hampel}|{enable_constant}|{_qc_params_key(variable_key)}"
-        if st.session_state.get("qc_token") != token:
-            st.session_state["qc_token"] = token
-            st.session_state["qc_confirmed"] = False
-            st.session_state["review_table"] = None
-            st.session_state["selected_record_ids"] = []
-            st.session_state.pop("qc_log_excel_bytes", None)
-            st.session_state.pop("summary_excel_bytes", None)
+        if st.session_state.get(_state_key(variable_key, "qc_token")) != token:
+            st.session_state[_state_key(variable_key, "qc_token")] = token
+            st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+            st.session_state[_state_key(variable_key, "review_table")] = None
+            st.session_state[_state_key(variable_key, "selected_record_ids")] = []
+            st.session_state.pop(_state_key(variable_key, "qc_log_excel_bytes"), None)
+            st.session_state.pop(_state_key(variable_key, "summary_excel_bytes"), None)
 
         raw, auto_qc_data, qc_summary, qc_log, initial_review_table = _get_auto_qc_assets(variable_key, source_args, start_ts, end_ts, enable_range, enable_hampel, enable_constant)
         if raw.empty:
             st.warning("当前时间范围内没有数据。")
             return
 
-        st.session_state["raw_data"] = raw
-        st.session_state["auto_qc_data"] = auto_qc_data
-        st.session_state["qc_log"] = qc_log
-        if st.session_state.get("review_table") is None:
-            st.session_state["review_table"] = initial_review_table.copy()
+        st.session_state[_state_key(variable_key, "raw_data")] = raw
+        st.session_state[_state_key(variable_key, "auto_qc_data")] = auto_qc_data
+        st.session_state[_state_key(variable_key, "qc_log")] = qc_log
+        if st.session_state.get(_state_key(variable_key, "review_table")) is None:
+            st.session_state[_state_key(variable_key, "review_table")] = initial_review_table.copy()
 
         st.header("第一步：自动规则")
         st.dataframe(_display_table(_health_table(raw, qc_summary)), use_container_width=True)
@@ -461,25 +485,25 @@ def main():
         st.plotly_chart(_create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key), use_container_width=True)
 
         st.header("第二步：候选异常确认与人工补充质控")
-        review_table = _enforce_physical_range_hard_rule(st.session_state["review_table"])
+        review_table = _enforce_physical_range_hard_rule(st.session_state[_state_key(variable_key, "review_table")])
         c1, c2, c3, c4 = st.columns(4)
         if c1.button("全部 Hampel 删除"):
             review_table = _apply_batch_decision(review_table, "hampel", "remove")
-            st.session_state["qc_confirmed"] = False
+            st.session_state[_state_key(variable_key, "qc_confirmed")] = False
         if c2.button("全部 Hampel 保留"):
             review_table = _apply_batch_decision(review_table, "hampel", "keep")
-            st.session_state["qc_confirmed"] = False
+            st.session_state[_state_key(variable_key, "qc_confirmed")] = False
         if c3.button("全部恒定值删除"):
             review_table = _apply_batch_decision(review_table, "constant_value", "remove")
-            st.session_state["qc_confirmed"] = False
+            st.session_state[_state_key(variable_key, "qc_confirmed")] = False
         if c4.button("全部恒定值保留"):
             review_table = _apply_batch_decision(review_table, "constant_value", "keep")
-            st.session_state["qc_confirmed"] = False
-        st.session_state["review_table"] = review_table
+            st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+        st.session_state[_state_key(variable_key, "review_table")] = review_table
 
         final_qc_data, final_qc_log = apply_review_table_decisions(raw, auto_qc_data, qc_log, review_table)
-        st.session_state["final_qc_data"] = final_qc_data
-        st.session_state["final_qc_log"] = final_qc_log
+        st.session_state[_state_key(variable_key, "final_qc_data")] = final_qc_data
+        st.session_state[_state_key(variable_key, "final_qc_log")] = final_qc_log
         summary_counts = _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary)
         st.dataframe(pd.DataFrame([summary_counts]), use_container_width=True)
 
@@ -502,8 +526,8 @@ def main():
 
         selected_ids = _selected_record_ids(selected_event)
         if selected_ids:
-            st.session_state["selected_record_ids"] = selected_ids
-        selected_ids = st.session_state.get("selected_record_ids", [])
+            st.session_state[_state_key(variable_key, "selected_record_ids")] = selected_ids
+        selected_ids = st.session_state.get(_state_key(variable_key, "selected_record_ids"), [])
         selected_table = review_table[review_table["record_id"].astype(str).isin(selected_ids)].copy()
         st.subheader("已选择的数据点")
         st.dataframe(_display_table(selected_table), use_container_width=True)
@@ -548,8 +572,8 @@ def main():
             key=f"{variable_key}_review_editor",
         )
         if _range_decisions_changed(range_table, edited_range):
-            st.session_state["review_table"] = _update_review_table(review_table, edited_range)
-            st.session_state["qc_confirmed"] = False
+            st.session_state[_state_key(variable_key, "review_table")] = _update_review_table(review_table, edited_range)
+            st.session_state[_state_key(variable_key, "qc_confirmed")] = False
             st.rerun()
 
         st.subheader("最终质控日志")
@@ -559,41 +583,44 @@ def main():
         shown_log = final_log_table if selected_rule == "全部" else final_log_table[final_log_table["rule"] == selected_rule]
         st.dataframe(_display_table(shown_log), use_container_width=True)
         if st.button("生成 QC 日志 Excel"):
-            st.session_state["qc_log_excel_bytes"] = _excel_bytes({"qc_log": final_log_table})
-        if "qc_log_excel_bytes" in st.session_state:
-            st.download_button("下载最终 QC 日志 Excel", st.session_state["qc_log_excel_bytes"], "final_qc_log.xlsx")
+            st.session_state[_state_key(variable_key, "qc_log_excel_bytes")] = _excel_bytes({"qc_log": final_log_table})
+        if _state_key(variable_key, "qc_log_excel_bytes") in st.session_state:
+            st.download_button("???? QC ?? Excel", st.session_state[_state_key(variable_key, "qc_log_excel_bytes")], "final_qc_log.xlsx")
 
         if st.button("确认最终质控结果"):
-            st.session_state["qc_confirmed"] = True
-        if not st.session_state.get("qc_confirmed", False):
+            st.session_state[_state_key(variable_key, "qc_confirmed")] = True
+        if not st.session_state.get(_state_key(variable_key, "qc_confirmed"), False):
             st.info("请先确认最终质控结果，再进入重采样、统计、绘图和导出。")
             return
 
-        st.header("确认后分析结果")
-        hourly, daily, anomaly, metrics, basic_row = _run_after_qc(variable_key, final_qc_data, qc_summary)
-        st.write(f"hourly 条数：{len(hourly)}；daily 条数：{len(daily)}")
+        st.header("???????")
+        resampled, anomaly, metrics, basic_row = _run_after_qc(variable_key, final_qc_data, qc_summary)
+        hourly = resampled.get("hourly")
+        daily = resampled.get("daily")
+        st.write(f"hourly ???{len(hourly) if hourly is not None else 0}?daily ???{len(daily) if daily is not None else 0}")
         basic_df = build_basic_statistics_table([basic_row])
         st.dataframe(_display_table(basic_df), use_container_width=True)
-        st.download_button("下载当前变量统计 CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
-        p1, p2 = st.columns(2)
-        with p1:
+        st.download_button("???????? CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
+
+        metadata = get_variable_metadata(variable_key)
+        plots = metadata.get("plots", [])
+        if hourly is not None and daily is not None and "raw_hourly_with_daily_mean" in plots:
             st.plotly_chart(_create_hourly_daily_figure(hourly, daily, variable_key), use_container_width=True)
-        with p2:
+        if anomaly is not None and "anomaly_series" in plots:
             st.plotly_chart(_create_anomaly_figure(anomaly, variable_key), use_container_width=True)
 
-        if variable_key == "temperature":
-            monthly_df = build_temperature_monthly_table(metrics)
-            st.dataframe(_display_table(monthly_df), use_container_width=True)
-        else:
-            depth_range_df = build_depth_daily_range_table(metrics)
-            st.dataframe(_display_table(depth_range_df), use_container_width=True)
-            st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
+        if metrics.get("monthly") is not None:
+            st.dataframe(_display_table(metrics["monthly"]), use_container_width=True)
+        if metrics.get("daily_range") is not None:
+            st.dataframe(_display_table(metrics["daily_range"]), use_container_width=True)
+        if metrics.get("max_daily_range") is not None and pd.notna(metrics.get("max_daily_range")):
+            st.metric("????????????", round(metrics["max_daily_range"], 4))
 
         st.warning("综合工作簿导出说明：当前变量已人工确认；另一个变量仅完成自动质控，未经人工确认。")
         if st.button("生成完整 summary_statistics.xlsx"):
-            st.session_state["summary_excel_bytes"] = _summary_workbook_bytes(depth_upload, temp_upload, date_range, enable_range, enable_hampel, enable_constant, variable_key, final_qc_data, qc_summary, final_qc_log)
-        if "summary_excel_bytes" in st.session_state:
-            st.download_button("下载完整 summary_statistics.xlsx", st.session_state["summary_excel_bytes"], "summary_statistics.xlsx")
+            st.session_state[_state_key(variable_key, "summary_excel_bytes")] = _summary_workbook_bytes(uploads, date_range, enable_range, enable_hampel, enable_constant, variable_key, final_qc_data, qc_summary, final_qc_log)
+        if _state_key(variable_key, "summary_excel_bytes") in st.session_state:
+            st.download_button("???? summary_statistics.xlsx", st.session_state[_state_key(variable_key, "summary_excel_bytes")], "summary_statistics.xlsx")
 
     except Exception as exc:
         st.error(f"处理失败：{exc}")

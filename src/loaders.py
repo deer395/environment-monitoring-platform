@@ -89,10 +89,11 @@ def load_excel_variable(file_path, variable_key, registry=None, sheet_name=0):
     metadata = registry.get(variable_key) or get_variable_metadata(variable_key)
     raw = _read_excel(path, sheet_name=sheet_name)
 
-    datetime_column = _find_column(
-        raw.columns, metadata["datetime_column_aliases"], "datetime"
-    )
-    value_column = _find_column(raw.columns, metadata["value_column_aliases"], "value")
+    aliases = metadata.get("aliases", {})
+    datetime_aliases = aliases.get("datetime", metadata["datetime_column_aliases"])
+    value_aliases = aliases.get("value", metadata["value_column_aliases"])
+    datetime_column = _find_column(raw.columns, datetime_aliases, "datetime")
+    value_column = _find_column(raw.columns, value_aliases, "value")
 
     data = raw[[datetime_column, value_column]].copy()
     data = data.rename(columns={datetime_column: "datetime", value_column: "value"})
@@ -108,6 +109,26 @@ def load_excel_variable(file_path, variable_key, registry=None, sheet_name=0):
     data.attrs["source_datetime_column"] = str(datetime_column)
     data.attrs["source_value_column"] = str(value_column)
     return data
+
+
+def load_default_variable(data_dir, variable_key, registry=None):
+    """Load one configured variable from its registry default Excel file."""
+    registry = registry or VARIABLE_REGISTRY
+    metadata = registry.get(variable_key) or get_variable_metadata(variable_key)
+    default_file = metadata.get("default_file") or metadata.get("default_file_name")
+    if not default_file:
+        raise ValueError(f"No default file configured for variable: {variable_key!r}")
+    return load_excel_variable(Path(data_dir) / default_file, variable_key, registry=registry)
+
+
+def load_variables(data_dir, variable_keys=None, registry=None):
+    """Load configured variables without adding variable-specific loader code."""
+    registry = registry or VARIABLE_REGISTRY
+    keys = tuple(variable_keys) if variable_keys is not None else tuple(registry.keys())
+    return {
+        variable_key: load_default_variable(data_dir, variable_key, registry=registry)
+        for variable_key in keys
+    }
 
 
 def reject_mat_input(file_path):
@@ -134,13 +155,4 @@ def load_depth_and_temperature(data_dir):
     Returns:
         A dictionary with ``depth`` and ``temperature`` DataFrames.
     """
-    data_path = Path(data_dir)
-    return {
-        "depth": load_excel_variable(
-            data_path / VARIABLE_REGISTRY["depth"]["default_file_name"], "depth"
-        ),
-        "temperature": load_excel_variable(
-            data_path / VARIABLE_REGISTRY["temperature"]["default_file_name"],
-            "temperature",
-        ),
-    }
+    return load_variables(data_dir, ("depth", "temperature"))

@@ -16,3 +16,14 @@ def calculate_intraday_anomaly(hourly_data, daily_mean_data):
     result = result[["datetime", "variable", "value", "daily_mean", "anomaly", "unit"]]
     result.attrs.update(hourly_data.attrs)
     return result
+
+
+def calculate_configured_anomaly(resampled_data, variable_metadata):
+    """Calculate anomaly only when enabled by registry metadata."""
+    if not variable_metadata.get("supports_intraday_anomaly", False):
+        return None
+    hourly = resampled_data.get("hourly")
+    daily = resampled_data.get("daily")
+    if hourly is None or daily is None:
+        return None
+    return calculate_intraday_anomaly(hourly, daily)
