@@ -1,4 +1,4 @@
-﻿"""Plotting functions for V1 depth and temperature outputs."""
+"""Plotting functions for V1/V2 depth and temperature outputs."""
 
 from pathlib import Path
 
@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 try:
     from .variable_registry import get_variable_metadata
@@ -73,7 +74,15 @@ def _style_axis(ax, title, xlabel, ylabel, show_legend=False):
 def _format_date_axis(ax):
     locator = mdates.AutoDateLocator(minticks=5, maxticks=8)
     ax.xaxis.set_major_locator(locator)
-    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    xmin, xmax = ax.get_xlim()
+    days = xmax - xmin
+    if days > 90:
+        formatter = mdates.DateFormatter("%Y/%m")
+    elif days > 7:
+        formatter = mdates.DateFormatter("%Y/%m/%d")
+    else:
+        formatter = mdates.DateFormatter("%m/%d %H:%M")
+    ax.xaxis.set_major_formatter(formatter)
     ax.tick_params(axis="x", rotation=30)
 
 
@@ -126,3 +135,165 @@ def plot_temperature_monthly(monthly_stats_df, output_path):
     _style_axis(ax, "温度月平均与月标准差", "年月", "温度(degC)", show_legend=True)
     ax.tick_params(axis="x", rotation=30)
     _save(fig, output_path)
+
+
+def plot_qc_comparison(raw_df, qc_df, variable_key, output_path):
+    """Plot raw series and applied-QC series side by side for algorithm checks."""
+    name, unit = _label(variable_key)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.8), sharex=True, sharey=True)
+    axes[0].plot(raw_df["datetime"], raw_df["value"], color="#1f77b4", linewidth=0.8)
+    axes[1].plot(qc_df["datetime"], qc_df["value"], color="#d62728", linewidth=0.8)
+
+    y_values = raw_df["value"].dropna()
+    if not y_values.empty:
+        y_min, y_max = y_values.min(), y_values.max()
+        margin = max((y_max - y_min) * 0.05, 1e-6)
+        axes[0].set_ylim(y_min - margin, y_max + margin)
+        axes[1].set_ylim(y_min - margin, y_max + margin)
+
+    _style_axis(axes[0], f"{name}原始时序", "日期", f"{name}({unit})")
+    _style_axis(axes[1], f"{name}自动剔除后时序", "日期", f"{name}({unit})")
+    for ax in axes:
+        _format_date_axis(ax)
+        _apply_y_axis_range(ax, variable_key)
+    _save(fig, output_path)
+
+
+def plot_qc_flags(raw_df, qc_log, variable_key, output_path):
+    """Plot raw series and highlight QC flags by rule."""
+    name, unit = _label(variable_key)
+    fig, ax = _new_figure()
+    ax.plot(raw_df["datetime"], raw_df["value"], color="#666666", linewidth=0.8, label="原始序列")
+    styles = {
+        "physical_range": ("#d62728", "x", "physical_range"),
+        "hampel": ("#ff7f0e", "o", "hampel"),
+        "constant_value": ("#2ca02c", "^", "constant_value"),
+    }
+    for rule, (color, marker, label) in styles.items():
+        flags = qc_log[qc_log["rule"] == rule] if qc_log is not None and not qc_log.empty else qc_log
+        if flags is not None and not flags.empty:
+            ax.scatter(flags["datetime"], flags["original_value"], color=color, marker=marker, s=30, label=label, zorder=3)
+    _style_axis(ax, f"{name}质控标记验证", "日期", f"{name}({unit})", show_legend=True)
+    _format_date_axis(ax)
+    _apply_y_axis_range(ax, variable_key)
+    _save(fig, output_path)
+
+
+def plot_qc_series(qc_df, variable_key, output_path, title_suffix="质控后时序", color="#d62728", raw_df=None):
+    """Plot one QC series with optional raw-data y-axis reference."""
+    name, unit = _label(variable_key)
+    fig, ax = _new_figure()
+    ax.plot(qc_df["datetime"], qc_df["value"], color=color, linewidth=0.8, label=title_suffix)
+
+    y_source = raw_df if raw_df is not None else qc_df
+    y_values = y_source["value"].dropna()
+    if not y_values.empty:
+        y_min, y_max = y_values.min(), y_values.max()
+        margin = max((y_max - y_min) * 0.05, 1e-6)
+        ax.set_ylim(y_min - margin, y_max + margin)
+
+    _style_axis(ax, f"{name}{title_suffix}", "日期", f"{name}({unit})", show_legend=True)
+    _format_date_axis(ax)
+    _apply_y_axis_range(ax, variable_key)
+    _save(fig, output_path)
+
+
+def _plotly_axis_range(raw_df, variable_key):
+    metadata_range = get_variable_metadata(variable_key).get("y_axis_range")
+    if metadata_range:
+        return metadata_range
+    y_values = raw_df["value"].dropna()
+    if y_values.empty:
+        return None
+    y_min, y_max = y_values.min(), y_values.max()
+    margin = max((y_max - y_min) * 0.05, 1e-6)
+    return [y_min - margin, y_max + margin]
+
+
+def create_qc_candidate_figure(raw_df, qc_log, review_table, variable_key):
+    """Create an interactive Plotly QC candidate figure with record_id customdata."""
+    name, unit = _label(variable_key)
+    review = review_table.copy()
+    review["record_id"] = review["record_id"].astype(str)
+    decision_map = review.set_index("record_id")["user_decision"].to_dict()
+    log = qc_log.copy() if qc_log is not None and not qc_log.empty else None
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattergl(
+            x=raw_df["datetime"],
+            y=raw_df["value"],
+            mode="lines",
+            name="原始时序",
+            line={"color": "#666666", "width": 1},
+            hoverinfo="skip",
+        )
+    )
+    styles = {
+        "physical_range": {"color": "#d62728", "symbol": "x", "name": "physical_range"},
+        "hampel": {"color": "#ff7f0e", "symbol": "circle", "name": "hampel"},
+        "constant_value": {"color": "#2ca02c", "symbol": "triangle-up", "name": "constant_value"},
+    }
+    if log is not None:
+        log["record_id"] = log["record_id"].astype(str)
+        for rule, style in styles.items():
+            flags = log[log["rule"].eq(rule)].copy()
+            if flags.empty:
+                continue
+            flags["user_decision"] = flags["record_id"].map(decision_map).fillna(flags["user_decision"])
+            flags["datetime_text"] = flags["datetime"].astype(str)
+            customdata = flags[["record_id", "datetime_text", "original_value", "rule", "user_decision"]].to_numpy()
+            fig.add_trace(
+                go.Scattergl(
+                    x=flags["datetime"],
+                    y=flags["original_value"],
+                    mode="markers",
+                    name=style["name"],
+                    marker={"color": style["color"], "symbol": style["symbol"], "size": 9},
+                    customdata=customdata,
+                    hovertemplate=(
+                        "record_id=%{customdata[0]}<br>"
+                        "datetime=%{customdata[1]}<br>"
+                        "original_value=%{customdata[2]}<br>"
+                        "rule=%{customdata[3]}<br>"
+                        "user_decision=%{customdata[4]}<extra></extra>"
+                    ),
+                )
+            )
+    fig.update_layout(
+        title=f"{name}候选异常交互图",
+        xaxis_title="日期",
+        yaxis_title=f"{name}({unit})",
+        hovermode="closest",
+        dragmode="select",
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+        margin={"l": 60, "r": 20, "t": 70, "b": 50},
+    )
+    fig.update_xaxes(tickformat="%Y/%m/%d")
+    fig.update_yaxes(range=_plotly_axis_range(raw_df, variable_key))
+    return fig
+
+
+def create_final_qc_figure(final_qc_data, raw_df, variable_key, removed_count, valid_count):
+    """Create an interactive Plotly final_qc_data preview figure."""
+    name, unit = _label(variable_key)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattergl(
+            x=final_qc_data["datetime"],
+            y=final_qc_data["value"],
+            mode="lines",
+            name="final_qc_data",
+            line={"color": "#d62728", "width": 1},
+        )
+    )
+    fig.update_layout(
+        title=f"{name}final_qc_data 预览：删除点 {removed_count}，有效记录 {valid_count}",
+        xaxis_title="日期",
+        yaxis_title=f"{name}({unit})",
+        hovermode="x unified",
+        margin={"l": 60, "r": 20, "t": 70, "b": 50},
+    )
+    fig.update_xaxes(tickformat="%Y/%m/%d")
+    fig.update_yaxes(range=_plotly_axis_range(raw_df, variable_key))
+    return fig

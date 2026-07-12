@@ -1,4 +1,4 @@
-﻿"""Report table builders for V1 deterministic outputs."""
+"""Report table builders for V1 deterministic outputs."""
 
 from pathlib import Path
 
@@ -102,6 +102,7 @@ def build_qc_summary_table(qc_summaries):
 def build_qc_log_table(qc_log):
     """Build a normalized QC log export table."""
     columns = [
+        "record_id",
         "datetime",
         "variable",
         "original_value",
@@ -112,10 +113,25 @@ def build_qc_log_table(qc_log):
         "is_applied",
         "parameter",
         "user_decision",
+        "decision_source",
     ]
     if qc_log is None or qc_log.empty:
         return pd.DataFrame(columns=columns)
-    return qc_log[columns].copy()
+    source = qc_log.copy()
+    for column in columns:
+        if column not in source.columns:
+            source[column] = pd.NA
+    table = source[columns].copy()
+    table["datetime"] = pd.to_datetime(table["datetime"], errors="coerce")
+    return table.sort_values(["variable", "datetime", "rule"]).reset_index(drop=True)
+
+
+def export_qc_log(qc_log, output_path):
+    """Export QC log to an Excel workbook."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(output_path) as writer:
+        build_qc_log_table(qc_log).to_excel(writer, sheet_name="qc_log", index=False)
 
 
 def export_summary_statistics(

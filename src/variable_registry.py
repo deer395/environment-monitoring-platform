@@ -1,4 +1,4 @@
-﻿"""Variable metadata registry for the V1/V2 Excel-only workflow."""
+"""Variable metadata registry for the V1/V2 Excel-only workflow."""
 
 from copy import deepcopy
 
@@ -15,10 +15,12 @@ VARIABLE_REGISTRY = {
         "valid_max": 100,
         "y_axis_range": None,
         "qc_profile": "marine_depth_v2_stage1",
-        "hampel_window": 7,
-        "hampel_sigma": 3.0,
+        "hampel_window": 25,
+        "hampel_sigma": 4.0,
+        "hampel_min_abs_deviation": 0.8,
         "rate_change_limit": None,
         "constant_value_window": 12,
+        "constant_value_tolerance": 0.0,
         "datetime_column_aliases": [
             "datetime", "date_time", "timestamp", "time", "date",
             "日期时间", "时间", "日期", "监测时间", "采样时间", "观测时间",
@@ -51,10 +53,12 @@ VARIABLE_REGISTRY = {
         "valid_max": 45,
         "y_axis_range": None,
         "qc_profile": "marine_temperature_v2_stage1",
-        "hampel_window": 7,
-        "hampel_sigma": 3.0,
+        "hampel_window": 49,
+        "hampel_sigma": 4.0,
+        "hampel_min_abs_deviation": 2.0,
         "rate_change_limit": None,
         "constant_value_window": 12,
+        "constant_value_tolerance": 0.0,
         "datetime_column_aliases": [
             "datetime", "date_time", "timestamp", "time", "date",
             "日期时间", "时间", "日期", "监测时间", "采样时间", "观测时间",

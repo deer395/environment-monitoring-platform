@@ -7,3 +7,4 @@ outputs/
 .env
 __pycache__/
 *.pyc
+~$*
