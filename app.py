@@ -28,11 +28,9 @@ from src.qc import apply_quality_control
 from src.report_tables import (
     build_basic_statistics_row,
     build_basic_statistics_table,
-    build_depth_daily_range_table,
     build_qc_log_table,
     build_qc_summary_table,
     build_summary_workbook_sheets,
-    build_temperature_monthly_table,
 )
 from src.resampling import resample_configured
 from src.variable_registry import VARIABLE_REGISTRY, get_variable_metadata, list_enabled_variables
@@ -551,8 +549,8 @@ def _run_after_qc(variable_key, final_qc_data, qc_summary):
 
 
 def main():
-    st.set_page_config(page_title="海洋牧场 V3.1 通用变量质控", layout="wide")
-    st.title("海洋牧场 V3.1 通用变量质控工作流")
+    st.set_page_config(page_title="海洋牧场 V3.2 通用变量质控", layout="wide")
+    st.title("海洋牧场 V3.2 通用变量质控工作流")
     st.caption("自动规则先处理；算法候选和人工质控在同一复核区完成。后续分析只使用 final_qc_data。")
 
     variable_keys = list(list_enabled_variables())

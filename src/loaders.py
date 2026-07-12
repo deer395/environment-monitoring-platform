@@ -101,6 +101,9 @@ def load_excel_variable(file_path, variable_key, registry=None, sheet_name=0):
     data["value"] = pd.to_numeric(data["value"], errors="coerce")
     data = data.dropna(subset=["datetime", "value"]).sort_values("datetime")
     data = data.reset_index(drop=True)
+    data.insert(0, "record_id", [f"{variable_key}_{idx}" for idx in range(len(data))])
+    data["variable"] = variable_key
+    data["unit"] = metadata["unit"]
 
     data.attrs["variable_key"] = variable_key
     data.attrs["display_name"] = metadata["display_name"]

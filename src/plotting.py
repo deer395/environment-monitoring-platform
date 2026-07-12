@@ -115,8 +115,9 @@ def plot_intraday_anomaly(anomaly_df, variable_key, output_path):
     _save(fig, output_path)
 
 
-def plot_temperature_monthly(monthly_stats_df, output_path):
-    """Plot temperature monthly mean with monthly std error bars."""
+def plot_monthly_statistics(monthly_stats_df, variable_key, output_path):
+    """Plot monthly mean with monthly std error bars for any registered variable."""
+    name, unit = _label(variable_key)
     data = monthly_stats_df.copy()
     x = data["year_month"].astype(str)
     fig, ax = _new_figure()
@@ -132,9 +133,14 @@ def plot_temperature_monthly(monthly_stats_df, output_path):
         linewidth=LINE_WIDTH,
         label="月平均 ± 月标准差",
     )
-    _style_axis(ax, "温度月平均与月标准差", "年月", "温度(degC)", show_legend=True)
+    _style_axis(ax, f"{name}月平均与月标准差", "年月", f"{name}({unit})", show_legend=True)
     ax.tick_params(axis="x", rotation=30)
     _save(fig, output_path)
+
+
+def plot_temperature_monthly(monthly_stats_df, output_path):
+    """Backward-compatible temperature monthly plot wrapper."""
+    plot_monthly_statistics(monthly_stats_df, "temperature", output_path)
 
 
 def plot_qc_comparison(raw_df, qc_df, variable_key, output_path):
