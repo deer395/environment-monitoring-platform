@@ -3,8 +3,73 @@
 from copy import deepcopy
 
 
+V2_RESERVED_SOURCES = {
+    "mat": "MAT file reading is excluded from V1/V2 stage 1 and reserved for later review.",
+}
+
+
+STANDARD_METRICS = [
+    "count",
+    "valid_count",
+    "missing_count",
+    "mean",
+    "min",
+    "max",
+    "median",
+    "std",
+    "monthly_mean",
+    "monthly_std",
+    "daily_range",
+    "max_daily_range",
+]
+
+STANDARD_PLOTS = [
+    "raw_hourly_with_daily_mean",
+    "anomaly_series",
+    "monthly_statistics",
+    "daily_range",
+]
+
+COMMON_DATETIME_ALIASES = [
+    "datetime",
+    "date_time",
+    "timestamp",
+    "time",
+    "date",
+    "日期时间",
+    "时间",
+    "日期",
+    "监测时间",
+    "采样时间",
+    "观测时间",
+]
+
+COMMON_VALUE_ALIASES = ["value", "监测值", "数值", "值"]
+
+
+def _standard_capabilities():
+    return {
+        "sampling_type": "high_frequency",
+        "aggregation": "mean",
+        "supports_hourly": True,
+        "supports_daily": True,
+        "supports_monthly": True,
+        "supports_intraday_anomaly": True,
+        "supports_daily_range": True,
+        "supports_harmonic_analysis": False,
+        "resampling": ["hourly_mean", "daily_mean"],
+        "anomaly": "hourly_value_minus_daily_mean",
+        "metrics": STANDARD_METRICS.copy(),
+        "plots": STANDARD_PLOTS.copy(),
+        "has_monthly_statistics": True,
+        "has_daily_range": True,
+        "special_handling": None,
+    }
+
+
 VARIABLE_REGISTRY = {
     "depth": {
+        **_standard_capabilities(),
         "display_name": "Depth",
         "display_name_cn": "水深",
         "display_name_en": "Depth",
@@ -15,14 +80,6 @@ VARIABLE_REGISTRY = {
         "valid_min": 0,
         "valid_max": 100,
         "y_axis_range": None,
-        "sampling_type": "high_frequency",
-        "aggregation": "mean",
-        "supports_hourly": True,
-        "supports_daily": True,
-        "supports_monthly": False,
-        "supports_intraday_anomaly": True,
-        "supports_daily_range": True,
-        "supports_harmonic_analysis": False,
         "qc_profile": "marine_depth_v2_stage1",
         "hampel_window": 25,
         "hampel_sigma": 4.0,
@@ -30,21 +87,11 @@ VARIABLE_REGISTRY = {
         "rate_change_limit": None,
         "constant_value_window": 12,
         "constant_value_tolerance": 0.0,
-        "datetime_column_aliases": [
-            "datetime", "date_time", "timestamp", "time", "date",
-            "日期时间", "时间", "日期", "监测时间", "采样时间", "观测时间",
-        ],
-        "value_column_aliases": [
-            "depth", "depth_m", "water_depth", "value", "水深", "深度", "水位", "测值", "数值", "值",
-        ],
+        "datetime_column_aliases": COMMON_DATETIME_ALIASES.copy(),
+        "value_column_aliases": ["depth", "depth_m", "water_depth", "水深", "深度", "水位"] + COMMON_VALUE_ALIASES,
         "aliases": {
-            "datetime": [
-                "datetime", "date_time", "timestamp", "time", "date",
-                "日期时间", "时间", "日期", "监测时间", "采样时间", "观测时间",
-            ],
-            "value": [
-                "depth", "depth_m", "water_depth", "value", "水深", "深度", "水位", "测值", "数值", "值",
-            ],
+            "datetime": COMMON_DATETIME_ALIASES.copy(),
+            "value": ["depth", "depth_m", "water_depth", "水深", "深度", "水位"] + COMMON_VALUE_ALIASES,
         },
         "qc_rules": {
             "required_fields": ["datetime", "value"],
@@ -52,18 +99,9 @@ VARIABLE_REGISTRY = {
             "valid_max": 100,
             "valid_range": [0, 100],
         },
-        "resampling": ["hourly_mean", "daily_mean"],
-        "anomaly": "hourly_value_minus_daily_mean",
-        "metrics": [
-            "count", "valid_count", "missing_count", "mean", "min", "max", "median", "std",
-            "daily_range", "max_daily_range",
-        ],
-        "plots": ["raw_hourly_with_daily_mean", "anomaly_series"],
-        "has_monthly_statistics": False,
-        "has_daily_range": True,
-        "special_handling": None,
     },
     "temperature": {
+        **_standard_capabilities(),
         "display_name": "Temperature",
         "display_name_cn": "温度",
         "display_name_en": "Temperature",
@@ -74,14 +112,6 @@ VARIABLE_REGISTRY = {
         "valid_min": -5,
         "valid_max": 45,
         "y_axis_range": None,
-        "sampling_type": "high_frequency",
-        "aggregation": "mean",
-        "supports_hourly": True,
-        "supports_daily": True,
-        "supports_monthly": True,
-        "supports_intraday_anomaly": True,
-        "supports_daily_range": False,
-        "supports_harmonic_analysis": False,
         "qc_profile": "marine_temperature_v2_stage1",
         "hampel_window": 49,
         "hampel_sigma": 4.0,
@@ -89,21 +119,11 @@ VARIABLE_REGISTRY = {
         "rate_change_limit": None,
         "constant_value_window": 12,
         "constant_value_tolerance": 0.0,
-        "datetime_column_aliases": [
-            "datetime", "date_time", "timestamp", "time", "date",
-            "日期时间", "时间", "日期", "监测时间", "采样时间", "观测时间",
-        ],
-        "value_column_aliases": [
-            "temperature", "temperature_c", "temp", "temp_c", "value", "温度", "水温", "测值", "数值", "值",
-        ],
+        "datetime_column_aliases": COMMON_DATETIME_ALIASES.copy(),
+        "value_column_aliases": ["temperature", "temperature_c", "temp", "temp_c", "温度", "水温"] + COMMON_VALUE_ALIASES,
         "aliases": {
-            "datetime": [
-                "datetime", "date_time", "timestamp", "time", "date",
-                "日期时间", "时间", "日期", "监测时间", "采样时间", "观测时间",
-            ],
-            "value": [
-                "temperature", "temperature_c", "temp", "temp_c", "value", "温度", "水温", "测值", "数值", "值",
-            ],
+            "datetime": COMMON_DATETIME_ALIASES.copy(),
+            "value": ["temperature", "temperature_c", "temp", "temp_c", "温度", "水温"] + COMMON_VALUE_ALIASES,
         },
         "qc_rules": {
             "required_fields": ["datetime", "value"],
@@ -111,22 +131,7 @@ VARIABLE_REGISTRY = {
             "valid_max": 45,
             "valid_range": [-5, 45],
         },
-        "resampling": ["hourly_mean", "daily_mean"],
-        "anomaly": "hourly_value_minus_daily_mean",
-        "metrics": [
-            "count", "valid_count", "missing_count", "mean", "min", "max", "median", "std",
-            "monthly_mean", "monthly_std",
-        ],
-        "plots": ["raw_hourly_with_daily_mean", "anomaly_series", "monthly_statistics"],
-        "has_monthly_statistics": True,
-        "has_daily_range": False,
-        "special_handling": None,
     },
-}
-
-
-V2_RESERVED_SOURCES = {
-    "mat": "MAT file reading is excluded from V1/V2 stage 1 and reserved for later review.",
 }
 
 

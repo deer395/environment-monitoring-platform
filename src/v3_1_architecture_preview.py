@@ -16,7 +16,7 @@ from src.output_paths import ensure_stage_dirs
 from src.qc import apply_quality_control
 from src.report_tables import build_basic_statistics_row, build_summary_workbook_sheets
 from src.resampling import resample_configured
-from src.variable_registry import get_variable_metadata, list_enabled_variables
+from src.variable_registry import STANDARD_METRICS, VARIABLE_REGISTRY, get_variable_metadata, list_enabled_variables
 
 
 OUTPUT_DIR = PROJECT_ROOT / "outputs" / "v3_1_architecture"
@@ -38,15 +38,11 @@ def _run_variable(variable_key, raw):
     )
     resampled = resample_configured(qc_data, metadata)
     anomaly = calculate_configured_anomaly(resampled, metadata)
-    metric_source = resampled.get("hourly")
-    if metric_source is None:
-        metric_source = resampled.get("daily")
-    if metric_source is None:
-        metric_source = qc_data
+    metric_source = resampled["hourly"]
     metrics = calculate_metrics(
         variable_key,
         metric_source,
-        resampled.get("daily"),
+        resampled["daily"],
         anomaly,
         metadata=metadata,
         base_data=metric_source,
@@ -55,40 +51,47 @@ def _run_variable(variable_key, raw):
     return qc_summary, qc_log, resampled, anomaly, metrics, row
 
 
-def _virtual_low_frequency_check():
+def _virtual_variable_check():
+    variable_key = "virtual_variable"
     metadata = {
-        "display_name_cn": "虚拟低频变量",
-        "display_name_en": "Virtual low frequency",
+        "display_name_cn": "虚拟变量",
+        "display_name_en": "Virtual variable",
         "unit": "mg/L",
         "valid_min": 0,
         "valid_max": 100,
-        "sampling_type": "low_frequency",
+        "sampling_type": "high_frequency",
         "aggregation": "mean",
-        "supports_hourly": False,
+        "supports_hourly": True,
         "supports_daily": True,
-        "supports_monthly": False,
-        "supports_intraday_anomaly": False,
-        "supports_daily_range": False,
+        "supports_monthly": True,
+        "supports_intraday_anomaly": True,
+        "supports_daily_range": True,
         "supports_harmonic_analysis": False,
-        "metrics": ["count", "valid_count", "missing_count", "mean", "min", "max", "median", "std"],
-        "plots": [],
+        "metrics": STANDARD_METRICS.copy(),
+        "plots": ["raw_hourly_with_daily_mean", "anomaly_series", "monthly_statistics", "daily_range"],
     }
     data = pd.DataFrame(
         {
-            "datetime": pd.to_datetime(["2026-01-01", "2026-01-08", "2026-01-15"]),
-            "value": [1.0, 2.0, 3.0],
+            "datetime": pd.date_range("2026-01-01", periods=24, freq="30min"),
+            "value": [float((idx % 8) + 1) for idx in range(24)],
         }
     )
-    data.attrs.update({"variable_key": "virtual_low_frequency", "unit": "mg/L"})
-    resampled = resample_configured(data, metadata)
-    anomaly = calculate_configured_anomaly(resampled, metadata)
-    metrics = calculate_metrics("virtual_low_frequency", resampled.get("daily"), resampled.get("daily"), anomaly, metadata=metadata)
+    data.attrs.update({"variable_key": variable_key, "unit": "mg/L"})
+    VARIABLE_REGISTRY[variable_key] = metadata
+    try:
+        registry_metadata = get_variable_metadata(variable_key)
+        resampled = resample_configured(data, registry_metadata)
+        anomaly = calculate_configured_anomaly(resampled, registry_metadata)
+        metrics = calculate_metrics(variable_key, resampled["hourly"], resampled["daily"], anomaly, metadata=registry_metadata)
+    finally:
+        VARIABLE_REGISTRY.pop(variable_key, None)
 
-    _assert("hourly" not in resampled, "low-frequency variable should not run hourly resampling")
-    _assert("daily" in resampled, "low-frequency variable should still support configured daily output")
-    _assert(anomaly is None, "low-frequency variable should not run intraday anomaly")
-    _assert("daily_range" not in metrics, "low-frequency variable should not run daily_range")
-    _assert(metrics["valid_count"] == 3, "generic metrics should run for unknown variable names")
+    _assert("hourly" in resampled, "new configured variable should run hourly resampling")
+    _assert("daily" in resampled, "new configured variable should run daily resampling")
+    _assert(anomaly is not None, "new configured variable should run intraday anomaly")
+    _assert("monthly" in metrics, "new configured variable should run monthly metrics")
+    _assert("daily_range" in metrics, "new configured variable should run daily_range")
+    _assert(metrics["valid_count"] == len(resampled["hourly"]), "generic metrics should run for configured variable names")
     return metadata, resampled, anomaly, metrics
 
 
@@ -113,13 +116,11 @@ def main():
         raw = loaded[variable_key]
         qc_summary, qc_log, resampled, anomaly, metrics, row = _run_variable(variable_key, raw)
         metadata = get_variable_metadata(variable_key)
-        _assert(("hourly" in resampled) == bool(metadata.get("supports_hourly")), f"{variable_key} hourly capability mismatch")
-        _assert(("daily" in resampled) == bool(metadata.get("supports_daily")), f"{variable_key} daily capability mismatch")
-        _assert((anomaly is not None) == bool(metadata.get("supports_intraday_anomaly")), f"{variable_key} anomaly capability mismatch")
-        if metadata.get("supports_monthly"):
-            _assert("monthly" in metrics, f"{variable_key} monthly metrics missing")
-        if metadata.get("supports_daily_range"):
-            _assert("daily_range" in metrics, f"{variable_key} daily_range missing")
+        _assert("hourly" in resampled, f"{variable_key} hourly output missing")
+        _assert("daily" in resampled, f"{variable_key} daily output missing")
+        _assert(anomaly is not None, f"{variable_key} anomaly output missing")
+        _assert("monthly" in metrics, f"{variable_key} monthly metrics missing")
+        _assert("daily_range" in metrics, f"{variable_key} daily_range missing")
 
         basic_rows.append(row)
         qc_summaries[variable_key] = qc_summary
@@ -133,26 +134,30 @@ def main():
             "metric_keys": sorted(metrics.keys()),
         }
 
-    low_frequency = _virtual_low_frequency_check()
+    virtual_variable = _virtual_variable_check()
     session_keys = _session_state_key_check()
+    metrics_by_variable["virtual_variable"] = virtual_variable[3]
     sheets = build_summary_workbook_sheets(basic_rows, qc_summaries, metrics_by_variable)
     _assert("temperature_monthly" not in sheets, "dynamic export should not require fixed temperature_monthly sheet")
     _assert("depth_daily_range" not in sheets, "dynamic export should not require fixed depth_daily_range sheet")
     _assert(any(name.endswith("_monthly_statistics") for name in sheets), "dynamic monthly sheet should be generated from actual metrics")
+    _assert("virtual_variable_monthly_statistics" in sheets, "dynamic export should include virtual variable monthly sheet")
+    _assert("virtual_variable_daily_range_statistics" in sheets, "dynamic export should include virtual variable daily_range sheet")
 
     pd.DataFrame(regression).T.to_csv(OUTPUT_DIR / "depth_temperature_regression.csv", encoding="utf-8-sig")
     pd.DataFrame([session_keys]).to_csv(OUTPUT_DIR / "session_state_key_check.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame(
         [
             {
-                "has_hourly": "hourly" in low_frequency[1],
-                "has_daily": "daily" in low_frequency[1],
-                "has_anomaly": low_frequency[2] is not None,
-                "has_daily_range": "daily_range" in low_frequency[3],
-                "valid_count": low_frequency[3]["valid_count"],
+                "has_hourly": "hourly" in virtual_variable[1],
+                "has_daily": "daily" in virtual_variable[1],
+                "has_anomaly": virtual_variable[2] is not None,
+                "has_monthly": "monthly" in virtual_variable[3],
+                "has_daily_range": "daily_range" in virtual_variable[3],
+                "valid_count": virtual_variable[3]["valid_count"],
             }
         ]
-    ).to_csv(OUTPUT_DIR / "virtual_low_frequency_check.csv", index=False, encoding="utf-8-sig")
+    ).to_csv(OUTPUT_DIR / "virtual_variable_check.csv", index=False, encoding="utf-8-sig")
     with pd.ExcelWriter(OUTPUT_DIR / "dynamic_summary_sheets.xlsx") as writer:
         for sheet_name, table in sheets.items():
             table.to_excel(writer, sheet_name=sheet_name[:31], index=False)

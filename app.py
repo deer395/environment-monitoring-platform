@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from tempfile import NamedTemporaryFile
 from io import BytesIO
 import hashlib
@@ -427,18 +427,141 @@ def _summary_workbook_bytes(uploads, date_range, enable_range, enable_hampel, en
     sheets = build_summary_workbook_sheets(all_rows, all_qc, all_metrics, combined_log)
     return _excel_bytes(sheets)
 
+def _health_table(raw, qc_summary, final_qc_data=None):
+    final_valid = None if final_qc_data is None else int(final_qc_data["value"].notna().sum())
+    return pd.DataFrame([{
+        "原始记录数": qc_summary["raw_count"],
+        "原始缺测数": qc_summary["missing_before_qc"],
+        "时间范围": f"{raw['datetime'].min()} 至 {raw['datetime'].max()}",
+        "重复时间数量": int(raw["datetime"].duplicated().sum()),
+        "物理范围删除数": qc_summary["removed_by_range"],
+        "Hampel 标记数": qc_summary["flagged_by_hampel"],
+        "恒定值标记数": qc_summary["flagged_by_constant_value"],
+        "自动应用数量": qc_summary["applied_flagged_count"],
+        "最终有效记录数": final_valid,
+    }])
+
+
+COLUMN_LABELS = {
+    "record_id": "记录ID",
+    "datetime": "时间",
+    "variable": "变量",
+    "original_value": "原始值",
+    "current_qc_value": "当前质控值",
+    "qc_value": "质控后值",
+    "existing_rule": "已有规则",
+    "algorithm_flag": "算法标记",
+    "user_decision": "用户决定",
+    "rule": "规则",
+    "reason": "原因",
+    "is_flagged": "是否标记",
+    "is_applied": "是否应用",
+    "parameter": "参数",
+    "decision_source": "决定来源",
+    "display_name_cn": "中文名称",
+    "unit": "单位",
+    "start_time": "开始时间",
+    "end_time": "结束时间",
+    "raw_count": "原始记录数",
+    "count": "统计记录数",
+    "valid_count": "有效记录数",
+    "missing_count": "缺测数",
+    "missing_count_after_qc": "质控后缺测数",
+    "mean": "平均值",
+    "max": "最大值",
+    "min": "最小值",
+    "median": "中位数",
+    "std": "标准差",
+    "date": "日期",
+    "daily_range": "日变化幅度",
+    "max_daily_range": "最大日变化幅度",
+    "year_month": "年月",
+    "monthly_mean": "月平均",
+    "monthly_std": "月标准差",
+}
+
+
+def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
+    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("physical_range", na=False)
+    return {
+        "原始缺测数": int(qc_summary["missing_before_qc"]),
+        "物理范围删除数": int(qc_summary["removed_by_range"]),
+        "用户确认删除数": int(user_removed.sum()),
+        "最终缺测数": int(final_qc_data["value"].isna().sum()),
+        "最终有效记录数": int(final_qc_data["value"].notna().sum()),
+    }
+
+
+def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
+    metadata = get_variable_metadata(variable_key)
+    name = metadata.get("display_name_cn", variable_key)
+    unit = metadata.get("unit", "")
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 physical_range 后时序"), shared_xaxes=True, shared_yaxes=True)
+    fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
+    fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动规则后", line={"color": "#d62728", "width": 1}), row=1, col=2)
+    y_values = raw["value"].dropna()
+    if not y_values.empty:
+        y_min, y_max = y_values.min(), y_values.max()
+        margin = max((y_max - y_min) * 0.05, 1e-6)
+        fig.update_yaxes(range=[y_min - margin, y_max + margin])
+    fig.update_layout(title=f"{name}自动规则前后对比", yaxis_title=f"{name}({unit})", hovermode="x unified", margin={"l": 50, "r": 20, "t": 60, "b": 40})
+    fig.update_xaxes(title_text="日期", tickformat="%Y/%m/%d")
+    return fig
+
+
+def _create_hourly_daily_figure(hourly, daily, variable_key):
+    metadata = get_variable_metadata(variable_key)
+    name = metadata.get("display_name_cn", variable_key)
+    unit = metadata.get("unit", "")
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(x=hourly["datetime"], y=hourly["value"], mode="lines", name="小时平均", line={"color": "#1f77b4", "width": 0.7}, opacity=0.35))
+    fig.add_trace(go.Scattergl(x=daily["datetime"], y=daily["value"], mode="lines", name="日平均", line={"color": "#ff3333", "width": 2.2}))
+    fig.update_layout(title=f"{name}小时平均与日平均", xaxis_title="日期", yaxis_title=f"{name}({unit})", hovermode="x unified")
+    fig.update_xaxes(tickformat="%Y/%m/%d")
+    return fig
+
+
+def _create_anomaly_figure(anomaly, variable_key):
+    metadata = get_variable_metadata(variable_key)
+    name = metadata.get("display_name_cn", variable_key)
+    unit = metadata.get("unit", "")
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(x=anomaly["datetime"], y=anomaly["anomaly"], mode="lines", name="日内距平", line={"color": "#1f77b4", "width": 1}))
+    fig.add_hline(y=0, line_color="#333333", line_width=1)
+    fig.update_layout(title=f"{name}日内距平", xaxis_title="日期", yaxis_title=f"{name}距平({unit})", hovermode="x unified")
+    fig.update_xaxes(tickformat="%Y/%m/%d")
+    return fig
+
+
+def _run_after_qc(variable_key, final_qc_data, qc_summary):
+    metadata = get_variable_metadata(variable_key)
+    resampled = resample_configured(final_qc_data, metadata)
+    anomaly = calculate_configured_anomaly(resampled, metadata)
+    metric_source = resampled["hourly"]
+    metrics = calculate_metrics(
+        variable_key,
+        metric_source,
+        resampled["daily"],
+        anomaly,
+        metadata=metadata,
+        base_data=metric_source,
+    )
+    basic_row = build_basic_statistics_row(variable_key, metric_source, metrics, qc_summary)
+    return resampled, anomaly, metrics, basic_row
+
+
 def main():
-    st.set_page_config(page_title="海洋牧场 V2 Stage 4.1 质控", layout="wide")
-    st.title("海洋牧场 V2 Stage 4.1 质控工作流")
+    st.set_page_config(page_title="海洋牧场 V3.1 通用变量质控", layout="wide")
+    st.title("海洋牧场 V3.1 通用变量质控工作流")
     st.caption("自动规则先处理；算法候选和人工质控在同一复核区完成。后续分析只使用 final_qc_data。")
 
     variable_keys = list(list_enabled_variables())
     uploads = {}
     for key in variable_keys:
         metadata = get_variable_metadata(key)
-        label = f"??{metadata.get('display_name_cn', key)} Excel"
+        label = f"上传{metadata.get('display_name_cn', key)} Excel"
         uploads[key] = st.sidebar.file_uploader(label, type=["xls", "xlsx"], key=f"{key}_upload")
-    variable_key = st.sidebar.selectbox("????", variable_keys, format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
+    variable_key = st.sidebar.selectbox("变量选择", variable_keys, format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
     st.session_state["current_variable_key"] = variable_key
     enable_range = st.sidebar.checkbox("启用物理合理范围质控（自动删除）", value=True)
     enable_hampel = st.sidebar.checkbox("启用 Hampel 候选标记（仅标记）", value=True)
@@ -579,13 +702,13 @@ def main():
         st.subheader("最终质控日志")
         final_log_table = build_qc_log_table(final_qc_log)
         rule_options = ["全部"] + sorted(final_log_table["rule"].dropna().unique().tolist()) if not final_log_table.empty else ["全部"]
-        selected_rule = st.selectbox("按 rule 筛选最终日志", rule_options)
+        selected_rule = st.selectbox("按规则筛选最终日志", rule_options)
         shown_log = final_log_table if selected_rule == "全部" else final_log_table[final_log_table["rule"] == selected_rule]
         st.dataframe(_display_table(shown_log), use_container_width=True)
         if st.button("生成 QC 日志 Excel"):
             st.session_state[_state_key(variable_key, "qc_log_excel_bytes")] = _excel_bytes({"qc_log": final_log_table})
         if _state_key(variable_key, "qc_log_excel_bytes") in st.session_state:
-            st.download_button("???? QC ?? Excel", st.session_state[_state_key(variable_key, "qc_log_excel_bytes")], "final_qc_log.xlsx")
+            st.download_button("下载 QC 日志 Excel", st.session_state[_state_key(variable_key, "qc_log_excel_bytes")], "final_qc_log.xlsx")
 
         if st.button("确认最终质控结果"):
             st.session_state[_state_key(variable_key, "qc_confirmed")] = True
@@ -593,34 +716,31 @@ def main():
             st.info("请先确认最终质控结果，再进入重采样、统计、绘图和导出。")
             return
 
-        st.header("???????")
+        st.header("分析结果")
         resampled, anomaly, metrics, basic_row = _run_after_qc(variable_key, final_qc_data, qc_summary)
-        hourly = resampled.get("hourly")
-        daily = resampled.get("daily")
-        st.write(f"hourly ???{len(hourly) if hourly is not None else 0}?daily ???{len(daily) if daily is not None else 0}")
+        hourly = resampled["hourly"]
+        daily = resampled["daily"]
+        st.write(f"小时平均数据条数：{len(hourly)}；日平均数据条数：{len(daily)}")
         basic_df = build_basic_statistics_table([basic_row])
+        st.subheader("基础统计表")
         st.dataframe(_display_table(basic_df), use_container_width=True)
-        st.download_button("???????? CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
+        st.download_button("下载当前变量统计 CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
 
-        metadata = get_variable_metadata(variable_key)
-        plots = metadata.get("plots", [])
-        if hourly is not None and daily is not None and "raw_hourly_with_daily_mean" in plots:
-            st.plotly_chart(_create_hourly_daily_figure(hourly, daily, variable_key), use_container_width=True)
-        if anomaly is not None and "anomaly_series" in plots:
-            st.plotly_chart(_create_anomaly_figure(anomaly, variable_key), use_container_width=True)
+        st.plotly_chart(_create_hourly_daily_figure(hourly, daily, variable_key), use_container_width=True)
+        st.plotly_chart(_create_anomaly_figure(anomaly, variable_key), use_container_width=True)
 
-        if metrics.get("monthly") is not None:
-            st.dataframe(_display_table(metrics["monthly"]), use_container_width=True)
-        if metrics.get("daily_range") is not None:
-            st.dataframe(_display_table(metrics["daily_range"]), use_container_width=True)
-        if metrics.get("max_daily_range") is not None and pd.notna(metrics.get("max_daily_range")):
-            st.metric("????????????", round(metrics["max_daily_range"], 4))
+        st.subheader("月平均和月标准差")
+        st.dataframe(_display_table(metrics["monthly"]), use_container_width=True)
+        st.subheader("日变化幅度")
+        st.dataframe(_display_table(metrics["daily_range"]), use_container_width=True)
+        if pd.notna(metrics.get("max_daily_range")):
+            st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
 
-        st.warning("综合工作簿导出说明：当前变量已人工确认；另一个变量仅完成自动质控，未经人工确认。")
+        st.warning("综合工作簿导出说明：当前变量已人工确认；其他变量仅完成自动质控，未经人工确认。")
         if st.button("生成完整 summary_statistics.xlsx"):
             st.session_state[_state_key(variable_key, "summary_excel_bytes")] = _summary_workbook_bytes(uploads, date_range, enable_range, enable_hampel, enable_constant, variable_key, final_qc_data, qc_summary, final_qc_log)
         if _state_key(variable_key, "summary_excel_bytes") in st.session_state:
-            st.download_button("???? summary_statistics.xlsx", st.session_state[_state_key(variable_key, "summary_excel_bytes")], "summary_statistics.xlsx")
+            st.download_button("下载 summary_statistics.xlsx", st.session_state[_state_key(variable_key, "summary_excel_bytes")], "summary_statistics.xlsx")
 
     except Exception as exc:
         st.error(f"处理失败：{exc}")

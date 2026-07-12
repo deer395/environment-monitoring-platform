@@ -19,11 +19,9 @@ def calculate_intraday_anomaly(hourly_data, daily_mean_data):
 
 
 def calculate_configured_anomaly(resampled_data, variable_metadata):
-    """Calculate anomaly only when enabled by registry metadata."""
-    if not variable_metadata.get("supports_intraday_anomaly", False):
-        return None
+    """Calculate standard intra-day anomaly for all monitored variables."""
     hourly = resampled_data.get("hourly")
     daily = resampled_data.get("daily")
     if hourly is None or daily is None:
-        return None
+        raise ValueError("Intraday anomaly requires both hourly and daily resampled data.")
     return calculate_intraday_anomaly(hourly, daily)

@@ -43,12 +43,16 @@ def _aggregate_resample(source, frequency, aggregation):
 
 
 def resample_configured(data, variable_metadata):
-    """Resample data according to registry capabilities."""
+    """Resample monitoring data to the standard hourly and daily means.
+
+    V3.1 treats all monitored variables as 10-minute or 30-minute series, so
+    the main analysis pipeline always produces both hourly and daily means.
+    Registry metadata is still accepted for compatibility, but it no longer
+    disables either frequency in the standard workflow.
+    """
     source = sort_by_time(data)
-    aggregation = variable_metadata.get("aggregation", "mean")
-    result = {}
-    if variable_metadata.get("supports_hourly", "hourly_mean" in variable_metadata.get("resampling", [])):
-        result["hourly"] = _with_metadata(_aggregate_resample(source, "h", aggregation), source)
-    if variable_metadata.get("supports_daily", "daily_mean" in variable_metadata.get("resampling", [])):
-        result["daily"] = _with_metadata(_aggregate_resample(source, "D", aggregation), source)
-    return result
+    aggregation = "mean"
+    return {
+        "hourly": _with_metadata(_aggregate_resample(source, "h", aggregation), source),
+        "daily": _with_metadata(_aggregate_resample(source, "D", aggregation), source),
+    }

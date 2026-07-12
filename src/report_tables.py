@@ -88,15 +88,13 @@ def build_metric_detail_tables(metrics_by_variable):
     for variable_key, metrics_result in metrics_by_variable.items():
         if metrics_result.get("monthly") is not None:
             monthly = metrics_result["monthly"]
-            if not monthly.empty:
-                tables[f"{variable_key}_monthly_statistics"] = _round_numeric(monthly.copy())
+            tables[f"{variable_key}_monthly_statistics"] = _round_numeric(monthly.copy())
         if metrics_result.get("daily_range") is not None:
             daily_range = metrics_result["daily_range"]
-            if not daily_range.empty:
-                table = daily_range.copy()
-                if "date" in table.columns:
-                    table["date"] = pd.to_datetime(table["date"]).dt.date
-                tables[f"{variable_key}_daily_range_statistics"] = _round_numeric(table)
+            table = daily_range.copy()
+            if "date" in table.columns:
+                table["date"] = pd.to_datetime(table["date"]).dt.date
+            tables[f"{variable_key}_daily_range_statistics"] = _round_numeric(table)
     return tables
 
 

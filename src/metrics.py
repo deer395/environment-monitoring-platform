@@ -9,6 +9,7 @@ except ImportError:  # pragma: no cover
 
 
 DEFAULT_SCALAR_METRICS = ["count", "valid_count", "missing_count", "mean", "min", "max", "median", "std"]
+STANDARD_METRICS = DEFAULT_SCALAR_METRICS + ["monthly_mean", "monthly_std", "daily_range", "max_daily_range"]
 
 
 def _empty_series_frame(data):
@@ -83,48 +84,38 @@ def _metadata_for(variable_key, metadata):
     try:
         return get_variable_metadata(variable_key)
     except KeyError:
-        return {
-            "metrics": DEFAULT_SCALAR_METRICS,
-            "supports_monthly": False,
-            "supports_daily_range": False,
-        }
+        return {"metrics": STANDARD_METRICS}
 
 
 def calculate_metrics(variable_key, hourly_data=None, daily_mean_data=None, anomaly_data=None, metadata=None, base_data=None):
     """Calculate metrics by metric name instead of variable name.
 
     The function keeps the old positional signature for compatibility, but the
-    selected metrics now come from variable metadata. Unknown variable names fall
-    back to generic scalar metrics instead of raising an unsupported-variable
-    error.
+    all monitored variables receive the standard V3.1 statistics. Unknown
+    variable names still work and receive the same metric set instead of
+    raising an unsupported-variable error.
     """
     variable_metadata = _metadata_for(variable_key, metadata)
-    requested = list(variable_metadata.get("metrics") or DEFAULT_SCALAR_METRICS)
     source = _metric_source(base_data if base_data is not None else hourly_data, daily_mean_data)
     result = {}
 
     scalar_values = _scalar_metrics(source)
     for metric in DEFAULT_SCALAR_METRICS:
-        if metric in requested or metric in {"mean", "min", "max", "std"}:
-            result[metric] = scalar_values[metric]
+        result[metric] = scalar_values[metric]
 
-    if variable_metadata.get("supports_monthly") or any(metric in requested for metric in ["monthly_mean", "monthly_std"]):
-        result["monthly"] = _monthly_metrics(source)
+    result["monthly"] = _monthly_metrics(source)
 
-    if variable_metadata.get("supports_daily_range") or any(metric in requested for metric in ["daily_range", "max_daily_range"]):
-        daily_range, max_daily_range = _daily_range_metrics(anomaly_data)
-        result["daily_range"] = daily_range
-        result["max_daily_range"] = max_daily_range
+    daily_range, max_daily_range = _daily_range_metrics(anomaly_data)
+    result["daily_range"] = daily_range
+    result["max_daily_range"] = max_daily_range
 
     return result
 
 
 # Backward-compatible helpers retained for older scripts/imports.
 def calculate_temperature_metrics(hourly_data, daily_mean_data=None):
-    metadata = {"metrics": ["mean", "max", "min", "std", "monthly_mean", "monthly_std"], "supports_monthly": True}
-    return calculate_metrics("temperature", hourly_data, daily_mean_data, metadata=metadata)
+    return calculate_metrics("temperature", hourly_data, daily_mean_data, metadata={"metrics": STANDARD_METRICS})
 
 
 def calculate_depth_metrics(hourly_data, daily_mean_data=None, anomaly_data=None):
-    metadata = {"metrics": ["mean", "max", "min", "std", "daily_range", "max_daily_range"], "supports_daily_range": True}
-    return calculate_metrics("depth", hourly_data, daily_mean_data, anomaly_data, metadata=metadata)
+    return calculate_metrics("depth", hourly_data, daily_mean_data, anomaly_data, metadata={"metrics": STANDARD_METRICS})
