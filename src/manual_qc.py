@@ -49,7 +49,7 @@ def _normalize_log(qc_log):
     base_log = base_log[LOG_COLUMNS].copy().astype("object")
     base_log["record_id"] = base_log["record_id"].astype("string")
     base_log["datetime"] = pd.to_datetime(base_log["datetime"], errors="coerce")
-    base_log.loc[base_log["rule"].eq("physical_range"), "decision_source"] = "automatic"
+    base_log.loc[base_log["rule"].isin(["hard_range", "physical_range"]), "decision_source"] = "automatic"
     base_log.loc[base_log["rule"].isin(ALGORITHM_RULES), "decision_source"] = "algorithm_suggestion"
     return base_log
 
@@ -89,7 +89,8 @@ def build_qc_review_table(raw_data, auto_qc_data, qc_log, previous_decisions=Non
         lambda rules: ",".join(rule for rule in ALGORITHM_RULES if rule in str(rules).split(","))
     )
     table["user_decision"] = "undecided"
-    table.loc[table["existing_rule"].str.contains("physical_range", na=False), "user_decision"] = "remove"
+    hard_mask = table["existing_rule"].str.contains("hard_range|physical_range", na=False)
+    table.loc[hard_mask, "user_decision"] = "remove"
 
     if previous_decisions is not None and not previous_decisions.empty:
         previous = previous_decisions[["record_id", "user_decision"]].copy()
@@ -140,7 +141,7 @@ def apply_review_table_decisions(raw_data, auto_qc_data, qc_log, review_table):
     aligned = review.set_index("record_id", drop=False)
     aligned["original_value"] = aligned.index.map(raw_values)
 
-    physical = aligned["existing_rule"].str.contains("physical_range", na=False)
+    physical = aligned["existing_rule"].str.contains("hard_range|physical_range", na=False)
     algorithm = aligned["algorithm_flag"].ne("")
     decision = aligned["user_decision"]
 
@@ -211,7 +212,7 @@ def apply_review_table_decisions(raw_data, auto_qc_data, qc_log, review_table):
         final_log["is_applied"] = False
         keep_mask = ~final_log["record_id"].astype(str).isin(deleted_ids)
         final_log.loc[keep_mask, "qc_value"] = final_log.loc[keep_mask, "original_value"]
-        priority = {"physical_range": 0, "manual_remove": 1, "hampel": 2, "constant_value": 3}
+        priority = {"hard_range": 0, "physical_range": 0, "manual_remove": 1, "hampel": 2, "constant_value": 3}
         if deleted_ids:
             final_log["_priority"] = final_log["rule"].map(priority).fillna(99)
             applied_index = (

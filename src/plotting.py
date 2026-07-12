@@ -171,7 +171,8 @@ def plot_qc_flags(raw_df, qc_log, variable_key, output_path):
     fig, ax = _new_figure()
     ax.plot(raw_df["datetime"], raw_df["value"], color="#666666", linewidth=0.8, label="原始序列")
     styles = {
-        "physical_range": ("#d62728", "x", "physical_range"),
+        "hard_range": ("#d62728", "x", "硬范围异常"),
+        "physical_range": ("#d62728", "x", "硬范围异常"),
         "hampel": ("#ff7f0e", "o", "hampel"),
         "constant_value": ("#2ca02c", "^", "constant_value"),
     }
@@ -216,32 +217,106 @@ def _plotly_axis_range(raw_df, variable_key):
     return [y_min - margin, y_max + margin]
 
 
-def create_qc_candidate_figure(raw_df, qc_log, review_table, variable_key):
-    """Create an interactive Plotly QC candidate figure with record_id customdata."""
+def _candidate_record_ids(qc_log):
+    if qc_log is None or qc_log.empty or "record_id" not in qc_log.columns:
+        return set()
+    return set(qc_log["record_id"].astype(str))
+
+
+def _extrema_downsample_frame(data, max_points=5000, keep_record_ids=None):
+    if data is None or len(data) <= max_points:
+        return data.copy() if data is not None else data
+
+    source = data.copy()
+    source["datetime"] = source["datetime"].dt.tz_localize(None) if getattr(source["datetime"].dt, "tz", None) is not None else source["datetime"]
+    source["_row_order"] = range(len(source))
+    source["_time_ns"] = source["datetime"].astype("int64")
+    bins = max(max_points // 2, 1)
+    time_min = source["_time_ns"].min()
+    time_max = source["_time_ns"].max()
+    if time_min == time_max:
+        sampled = source.head(max_points).copy()
+    else:
+        span = time_max - time_min
+        source["_time_bin"] = ((source["_time_ns"] - time_min) * bins // (span + 1)).clip(lower=0, upper=bins - 1)
+        value_series = source["value"]
+        min_indices = value_series.groupby(source["_time_bin"]).idxmin().dropna().astype(int)
+        max_indices = value_series.groupby(source["_time_bin"]).idxmax().dropna().astype(int)
+        keep_indices = set(min_indices.tolist()) | set(max_indices.tolist()) | {source.index[0], source.index[-1]}
+        if keep_record_ids and "record_id" in source.columns:
+            ids = {str(item) for item in keep_record_ids}
+            keep_indices.update(source.index[source["record_id"].astype(str).isin(ids)].tolist())
+        sampled = source.loc[sorted(keep_indices)].copy()
+    sampled = sampled.sort_values(["datetime", "_row_order"])
+    return sampled.drop(columns=[column for column in ["_row_order", "_time_ns", "_time_bin"] if column in sampled.columns])
+
+
+def create_qc_candidate_figure(raw_df, qc_log, review_table, variable_key, selectable_raw_df=None):
+    """Create an interactive Plotly QC figure with selectable raw records."""
     name, unit = _label(variable_key)
     review = review_table.copy()
     review["record_id"] = review["record_id"].astype(str)
     decision_map = review.set_index("record_id")["user_decision"].to_dict()
+    rule_map = review.set_index("record_id")["existing_rule"].to_dict()
     log = qc_log.copy() if qc_log is not None and not qc_log.empty else None
+    selectable = selectable_raw_df.copy() if selectable_raw_df is not None else raw_df.copy()
+    keep_ids = _candidate_record_ids(log) | set(selectable["record_id"].astype(str))
+    background = _extrema_downsample_frame(raw_df, 5000, keep_record_ids=keep_ids)
+    selectable["record_id"] = selectable["record_id"].astype(str)
+    selectable["datetime_text"] = selectable["datetime"].astype(str)
+    selectable["existing_rule"] = selectable["record_id"].map(rule_map).fillna("")
+    selectable["user_decision"] = selectable["record_id"].map(decision_map).fillna("undecided")
+    selectable_customdata = selectable[["record_id", "datetime_text", "value", "existing_rule", "user_decision"]].to_numpy()
 
     fig = go.Figure()
     fig.add_trace(
         go.Scattergl(
-            x=raw_df["datetime"],
-            y=raw_df["value"],
+            x=background["datetime"],
+            y=background["value"],
             mode="lines",
-            name="原始时序",
-            line={"color": "#666666", "width": 1},
+            name="原始数据",
+            line={"color": "#111111", "width": 1.2},
             hoverinfo="skip",
         )
     )
+    if selectable_raw_df is not None and not selectable.empty:
+        fig.add_trace(
+            go.Scattergl(
+                x=selectable["datetime"],
+                y=selectable["value"],
+                mode="lines",
+                name="当前检查范围原始线",
+                line={"color": "#111111", "width": 1.2},
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+    fig.add_trace(
+        go.Scattergl(
+            x=selectable["datetime"],
+            y=selectable["value"],
+            mode="markers",
+            name="原始数据点",
+            marker={"color": "rgba(31, 119, 180, 0.35)", "size": 5},
+            customdata=selectable_customdata,
+            hovertemplate=(
+                "记录ID=%{customdata[0]}<br>"
+                "时间=%{customdata[1]}<br>"
+                "原始值=%{customdata[2]}<br>"
+                "已有规则=%{customdata[3]}<br>"
+                "当前决定=%{customdata[4]}<extra></extra>"
+            ),
+        )
+    )
     styles = {
-        "physical_range": {"color": "#d62728", "symbol": "x", "name": "physical_range"},
-        "hampel": {"color": "#ff7f0e", "symbol": "circle", "name": "hampel"},
-        "constant_value": {"color": "#2ca02c", "symbol": "triangle-up", "name": "constant_value"},
+        "hard_range": {"color": "#d62728", "symbol": "x", "name": "硬范围异常"},
+        "physical_range": {"color": "#d62728", "symbol": "x", "name": "硬范围异常"},
+        "hampel": {"color": "#ff7f0e", "symbol": "circle-open", "name": "Hampel 候选"},
+        "constant_value": {"color": "#2ca02c", "symbol": "triangle-up-open", "name": "恒定值候选"},
     }
     if log is not None:
         log["record_id"] = log["record_id"].astype(str)
+        shown_names = set()
         for rule, style in styles.items():
             flags = log[log["rule"].eq(rule)].copy()
             if flags.empty:
@@ -249,13 +324,17 @@ def create_qc_candidate_figure(raw_df, qc_log, review_table, variable_key):
             flags["user_decision"] = flags["record_id"].map(decision_map).fillna(flags["user_decision"])
             flags["datetime_text"] = flags["datetime"].astype(str)
             customdata = flags[["record_id", "datetime_text", "original_value", "rule", "user_decision"]].to_numpy()
+            trace_name = style["name"]
+            showlegend = trace_name not in shown_names
+            shown_names.add(trace_name)
             fig.add_trace(
                 go.Scattergl(
                     x=flags["datetime"],
                     y=flags["original_value"],
                     mode="markers",
-                    name=style["name"],
-                    marker={"color": style["color"], "symbol": style["symbol"], "size": 9},
+                    name=trace_name,
+                    showlegend=showlegend,
+                    marker={"color": style["color"], "symbol": style["symbol"], "size": 7, "opacity": 0.85, "line": {"width": 1.5}},
                     customdata=customdata,
                     hovertemplate=(
                         "记录ID=%{customdata[0]}<br>"
@@ -267,7 +346,7 @@ def create_qc_candidate_figure(raw_df, qc_log, review_table, variable_key):
                 )
             )
     fig.update_layout(
-        title=f"{name}候选异常交互图",
+        title=f"{name}质控交互图",
         xaxis_title="日期",
         yaxis_title=f"{name}({unit})",
         hovermode="closest",

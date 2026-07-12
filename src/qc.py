@@ -16,11 +16,11 @@ QC_SUMMARY_FIELDS = [
 ]
 
 
-def _get_valid_range(variable_metadata):
+def _get_hard_range(variable_metadata):
     rules = variable_metadata.get("qc_rules", {})
     return (
-        rules.get("valid_min", variable_metadata.get("valid_min")),
-        rules.get("valid_max", variable_metadata.get("valid_max")),
+        rules.get("hard_min", variable_metadata.get("hard_min", variable_metadata.get("valid_min"))),
+        rules.get("hard_max", variable_metadata.get("hard_max", variable_metadata.get("valid_max"))),
     )
 
 
@@ -133,13 +133,13 @@ def apply_quality_control(
     logs = []
     missing_before = int(result["value"].isna().sum())
 
-    valid_min, valid_max = _get_valid_range(variable_metadata)
+    hard_min, hard_max = _get_hard_range(variable_metadata)
     range_mask = result["value"].notna() & False
-    if enable_valid_range and valid_min is not None:
-        range_mask |= result["value"].notna() & (result["value"] < valid_min)
-    if enable_valid_range and valid_max is not None:
-        range_mask |= result["value"].notna() & (result["value"] > valid_max)
-    logs.append(_make_log_rows(result, range_mask, "physical_range", "超出物理合理范围", f"valid_min={valid_min}, valid_max={valid_max}", True))
+    if enable_valid_range and hard_min is not None:
+        range_mask |= result["value"].notna() & (result["value"] < hard_min)
+    if enable_valid_range and hard_max is not None:
+        range_mask |= result["value"].notna() & (result["value"] > hard_max)
+    logs.append(_make_log_rows(result, range_mask, "hard_range", "超出硬物理范围或明确仪器量程", f"hard_min={hard_min}, hard_max={hard_max}", True))
     result.loc[range_mask, "value"] = pd.NA
 
     day = result["datetime"].dt.floor("D")
@@ -176,6 +176,7 @@ def apply_quality_control(
         "raw_count": int(len(result)),
         "missing_before_qc": missing_before,
         "removed_by_range": int(range_mask.sum()),
+        "removed_by_hard_range": int(range_mask.sum()),
         "flagged_by_hampel": int((qc_log["rule"] == "hampel").sum()) if not qc_log.empty else 0,
         "flagged_by_rate_change": int((qc_log["rule"] == "rate_change").sum()) if not qc_log.empty else 0,
         "flagged_by_constant_value": int((qc_log["rule"] == "constant_value").sum()) if not qc_log.empty else 0,

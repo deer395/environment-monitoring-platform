@@ -84,6 +84,8 @@ def _current_state_key(name):
 def _qc_params_key(variable_key):
     metadata = get_variable_metadata(variable_key)
     return (
+        metadata.get("hard_min"),
+        metadata.get("hard_max"),
         metadata.get("valid_min"),
         metadata.get("valid_max"),
         metadata.get("hampel_window"),
@@ -181,9 +183,9 @@ def _health_table(raw, qc_summary, final_qc_data=None):
         "原始缺测数": qc_summary["missing_before_qc"],
         "时间范围": f"{raw['datetime'].min()} 至 {raw['datetime'].max()}",
         "重复时间数量": int(raw["datetime"].duplicated().sum()),
-        "物理范围删除数": qc_summary["removed_by_range"],
-        "Hampel标记数": qc_summary["flagged_by_hampel"],
-        "恒定值标记数": qc_summary["flagged_by_constant_value"],
+        "硬范围自动删除数": qc_summary["removed_by_range"],
+        "Hampel 候选数": qc_summary["flagged_by_hampel"],
+        "恒定值候选数": qc_summary["flagged_by_constant_value"],
         "自动应用数量": qc_summary["applied_flagged_count"],
         "最终有效记录数": final_valid,
     }])
@@ -241,11 +243,13 @@ def _editor_column_config():
 
 
 def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
-    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("physical_range", na=False)
+    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
     return {
         "原始缺测数": int(qc_summary["missing_before_qc"]),
-        "物理范围删除数": int(qc_summary["removed_by_range"]),
-        "用户确认删除数": int(user_removed.sum()),
+        "硬范围自动删除数": int(qc_summary["removed_by_range"]),
+        "Hampel 候选数": int(qc_summary["flagged_by_hampel"]),
+        "恒定值候选数": int(qc_summary["flagged_by_constant_value"]),
+        "人工删除数": int(user_removed.sum()),
         "最终缺测数": int(final_qc_data["value"].isna().sum()),
         "最终有效记录数": int(final_qc_data["value"].notna().sum()),
     }
@@ -253,7 +257,7 @@ def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
 
 def _enforce_physical_range_hard_rule(table):
     result = table.copy()
-    physical_mask = result["existing_rule"].astype(str).str.contains("physical_range", na=False)
+    physical_mask = result["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
     result.loc[physical_mask, "user_decision"] = "remove"
     return result
 
@@ -268,7 +272,7 @@ def _apply_batch_decision(table, rule, decision):
 def _apply_range_decision(table, start_ts, end_ts, decision):
     result = table.copy()
     mask = (result["datetime"] >= start_ts) & (result["datetime"] <= end_ts)
-    physical_mask = result["existing_rule"].astype(str).str.contains("physical_range", na=False)
+    physical_mask = result["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
     if decision in {"manual_keep", "keep", "undecided"}:
         mask = mask & ~physical_mask
     result.loc[mask, "user_decision"] = decision
@@ -316,7 +320,7 @@ def _apply_selected_decision(table, record_ids, decision):
     if not record_ids:
         return _enforce_physical_range_hard_rule(result)
     mask = result["record_id"].astype(str).isin([str(item) for item in record_ids])
-    physical_mask = result["existing_rule"].astype(str).str.contains("physical_range", na=False)
+    physical_mask = result["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
     if decision == "remove":
         algorithm_mask = mask & result["algorithm_flag"].astype(str).ne("")
         ordinary_mask = mask & ~algorithm_mask & ~physical_mask
@@ -355,7 +359,7 @@ def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
     metadata = get_variable_metadata(variable_key)
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 physical_range 后时序"), shared_xaxes=True, shared_yaxes=True)
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 hard_range 后时序"), shared_xaxes=True, shared_yaxes=True)
     fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
     fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动规则后", line={"color": "#d62728", "width": 1}), row=1, col=2)
     y_values = raw["value"].dropna()
@@ -432,9 +436,9 @@ def _health_table(raw, qc_summary, final_qc_data=None):
         "原始缺测数": qc_summary["missing_before_qc"],
         "时间范围": f"{raw['datetime'].min()} 至 {raw['datetime'].max()}",
         "重复时间数量": int(raw["datetime"].duplicated().sum()),
-        "物理范围删除数": qc_summary["removed_by_range"],
-        "Hampel 标记数": qc_summary["flagged_by_hampel"],
-        "恒定值标记数": qc_summary["flagged_by_constant_value"],
+        "硬范围自动删除数": qc_summary["removed_by_range"],
+        "Hampel 候选数": qc_summary["flagged_by_hampel"],
+        "恒定值候选数": qc_summary["flagged_by_constant_value"],
         "自动应用数量": qc_summary["applied_flagged_count"],
         "最终有效记录数": final_valid,
     }])
@@ -480,11 +484,13 @@ COLUMN_LABELS = {
 
 
 def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
-    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("physical_range", na=False)
+    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
     return {
         "原始缺测数": int(qc_summary["missing_before_qc"]),
-        "物理范围删除数": int(qc_summary["removed_by_range"]),
-        "用户确认删除数": int(user_removed.sum()),
+        "硬范围自动删除数": int(qc_summary["removed_by_range"]),
+        "Hampel 候选数": int(qc_summary["flagged_by_hampel"]),
+        "恒定值候选数": int(qc_summary["flagged_by_constant_value"]),
+        "人工删除数": int(user_removed.sum()),
         "最终缺测数": int(final_qc_data["value"].isna().sum()),
         "最终有效记录数": int(final_qc_data["value"].notna().sum()),
     }
@@ -494,7 +500,7 @@ def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
     metadata = get_variable_metadata(variable_key)
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 physical_range 后时序"), shared_xaxes=True, shared_yaxes=True)
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 hard_range 后时序"), shared_xaxes=True, shared_yaxes=True)
     fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
     fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动规则后", line={"color": "#d62728", "width": 1}), row=1, col=2)
     y_values = raw["value"].dropna()
@@ -602,7 +608,7 @@ def main():
 
         st.header("第一步：自动规则")
         st.dataframe(_display_table(_health_table(raw, qc_summary)), use_container_width=True)
-        st.caption("该对比仅展示 physical_range 自动删除结果，不应用 Hampel、constant_value 或人工决策。")
+        st.caption("该对比仅展示 hard_range 自动删除结果，不应用 Hampel、constant_value 或人工决策。")
         st.plotly_chart(_create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key), use_container_width=True)
 
         st.header("第二步：候选异常确认与人工补充质控")
@@ -628,11 +634,35 @@ def main():
         summary_counts = _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary)
         st.dataframe(pd.DataFrame([summary_counts]), use_container_width=True)
 
-        st.caption("左图：可选择的候选异常标记。右图：final_qc_data 实时预览。")
+        st.subheader("人工检查时间范围")
+        raw_min = raw["datetime"].min()
+        raw_max = raw["datetime"].max()
+        default_start = raw_min
+        default_end = min(raw_min + pd.Timedelta(days=7), raw_max)
+        r1, r2 = st.columns(2)
+        with r1:
+            check_start_date = st.date_input("开始日期", value=default_start.date(), min_value=raw_min.date(), max_value=raw_max.date(), key=f"{variable_key}_check_start_date")
+            check_start_time = st.time_input("开始时间", value=default_start.time().replace(microsecond=0), key=f"{variable_key}_check_start_time")
+        with r2:
+            check_end_date = st.date_input("结束日期", value=default_end.date(), min_value=raw_min.date(), max_value=raw_max.date(), key=f"{variable_key}_check_end_date")
+            check_end_time = st.time_input("结束时间", value=default_end.time().replace(microsecond=0), key=f"{variable_key}_check_end_time")
+        check_start = pd.Timestamp.combine(check_start_date, check_start_time)
+        check_end = pd.Timestamp.combine(check_end_date, check_end_time)
+        if check_start > check_end:
+            st.warning("人工检查开始时间不能晚于结束时间。")
+            return
+        b1, b2 = st.columns(2)
+        b1.button("当前时间范围全部删除", on_click=_set_range_decision, args=(check_start, check_end, "manual_remove"))
+        b2.button("当前时间范围全部恢复为原始状态", on_click=_set_range_decision, args=(check_start, check_end, "manual_keep"))
+
+        range_mask = (review_table["datetime"] >= check_start) & (review_table["datetime"] <= check_end)
+        selectable_raw = raw.loc[raw["record_id"].astype(str).isin(review_table.loc[range_mask, "record_id"].astype(str))].copy()
+
+        st.caption("左图：背景线已下采样，候选异常完整显示，当前人工检查时间范围内的原始点可点选、框选和套索选择。右图：final_qc_data 实时预览。")
         left, right = st.columns(2)
         with left:
             selected_event = st.plotly_chart(
-                create_qc_candidate_figure(raw, qc_log, review_table, variable_key),
+                create_qc_candidate_figure(raw, qc_log, review_table, variable_key, selectable_raw_df=selectable_raw),
                 use_container_width=True,
                 on_select="rerun",
                 selection_mode=["points", "box", "lasso"],
@@ -658,28 +688,6 @@ def main():
         s3.button("恢复选中点", disabled=not selected_ids, on_click=_set_selected_decision, args=("manual_keep",))
         s4.button("清除当前选择", disabled=not selected_ids, on_click=_clear_selection)
 
-        st.subheader("人工检查时间范围")
-        raw_min = raw["datetime"].min()
-        raw_max = raw["datetime"].max()
-        default_start = raw_min
-        default_end = min(raw_min + pd.Timedelta(days=7), raw_max)
-        r1, r2 = st.columns(2)
-        with r1:
-            check_start_date = st.date_input("开始日期", value=default_start.date(), min_value=raw_min.date(), max_value=raw_max.date(), key="check_start_date")
-            check_start_time = st.time_input("开始时间", value=default_start.time().replace(microsecond=0), key="check_start_time")
-        with r2:
-            check_end_date = st.date_input("结束日期", value=default_end.date(), min_value=raw_min.date(), max_value=raw_max.date(), key="check_end_date")
-            check_end_time = st.time_input("结束时间", value=default_end.time().replace(microsecond=0), key="check_end_time")
-        check_start = pd.Timestamp.combine(check_start_date, check_start_time)
-        check_end = pd.Timestamp.combine(check_end_date, check_end_time)
-        if check_start > check_end:
-            st.warning("人工检查开始时间不能晚于结束时间。")
-            return
-        b1, b2 = st.columns(2)
-        b1.button("当前时间范围全部删除", on_click=_set_range_decision, args=(check_start, check_end, "manual_remove"))
-        b2.button("当前时间范围全部恢复为原始状态", on_click=_set_range_decision, args=(check_start, check_end, "manual_keep"))
-
-        range_mask = (review_table["datetime"] >= check_start) & (review_table["datetime"] <= check_end)
         range_table = review_table.loc[range_mask].copy()
         st.subheader("当前时间范围逐点编辑表")
         st.caption(f"当前表格仅显示 {check_start} 至 {check_end}，共 {len(range_table)} 条记录。")

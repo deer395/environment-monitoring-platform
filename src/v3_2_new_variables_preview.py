@@ -68,12 +68,13 @@ def _load_real_data(variable_key):
 
 def _synthetic_values(variable_key, periods=96):
     baselines = {"salinity": 30.0, "dissolved_oxygen": 8.0, "cod": 3.0}
+    spikes = {"salinity": 45.0, "dissolved_oxygen": 33.0, "cod": 28.0}
     base = baselines.get(variable_key, 10.0)
     values = [base + ((idx % 12) - 6) * 0.03 for idx in range(periods)]
     if periods > 8:
         values[8] = -1.0
     if periods > 44:
-        values[44] = base + 25.0
+        values[44] = spikes.get(variable_key, base + 25.0)
     for idx in range(70, min(82, periods)):
         values[idx] = base - 1.0
     return values
@@ -221,9 +222,12 @@ def _check_no_new_variable_branches():
 
 def _run_variable_preview(variable_key):
     metadata = get_variable_metadata(variable_key)
+    target_hard_max = {"salinity": 50, "dissolved_oxygen": 100, "cod": 100}
     _assert(metadata["variable_key"] == variable_key, f"{variable_key} variable_key missing")
-    _assert(metadata["valid_min"] == 0, f"{variable_key} valid_min must be 0")
-    _assert(metadata["valid_max"] is None, f"{variable_key} valid_max must remain None until confirmed")
+    _assert(metadata["hard_min"] == 0, f"{variable_key} hard_min must be 0")
+    _assert(metadata["hard_max"] == target_hard_max[variable_key], f"{variable_key} hard_max mismatch")
+    _assert(metadata["valid_min"] == metadata["hard_min"], f"{variable_key} valid_min should mirror hard_min")
+    _assert(metadata["valid_max"] == metadata["hard_max"], f"{variable_key} valid_max should mirror hard_max")
     _assert(metadata.get("supports_harmonic_analysis") is False, f"{variable_key} harmonic analysis should be disabled")
     _assert(variable_key in list_enabled_variables(), f"{variable_key} should appear in enabled variable list")
 
