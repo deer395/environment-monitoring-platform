@@ -55,8 +55,8 @@ def _source_signature(variable_key, uploaded_file):
 
 def _source_label(variable_key, uploaded_file):
     if uploaded_file is not None:
-        return f"Uploaded file: {uploaded_file.name}"
-    return f"Local default file: {DEFAULT_FILES[variable_key]}"
+        return f"上传文件：{uploaded_file.name}"
+    return f"本地默认文件：{DEFAULT_FILES[variable_key]}"
 
 
 def _source_args(variable_key, uploaded_file):
@@ -154,30 +154,77 @@ def _run_after_qc(variable_key, final_qc_data, qc_summary):
 def _health_table(raw, qc_summary, final_qc_data=None):
     final_valid = None if final_qc_data is None else int(final_qc_data["value"].notna().sum())
     return pd.DataFrame([{
-        "raw_count": qc_summary["raw_count"],
-        "missing_before_qc": qc_summary["missing_before_qc"],
-        "time_range": f"{raw['datetime'].min()} to {raw['datetime'].max()}",
-        "duplicate_datetime_count": int(raw["datetime"].duplicated().sum()),
-        "physical_range_removed": qc_summary["removed_by_range"],
-        "hampel_flagged": qc_summary["flagged_by_hampel"],
-        "constant_value_flagged": qc_summary["flagged_by_constant_value"],
-        "auto_applied_count": qc_summary["applied_flagged_count"],
-        "final_valid_count": final_valid,
+        "原始记录数": qc_summary["raw_count"],
+        "原始缺测数": qc_summary["missing_before_qc"],
+        "时间范围": f"{raw['datetime'].min()} 至 {raw['datetime'].max()}",
+        "重复时间数量": int(raw["datetime"].duplicated().sum()),
+        "物理范围删除数": qc_summary["removed_by_range"],
+        "Hampel标记数": qc_summary["flagged_by_hampel"],
+        "恒定值标记数": qc_summary["flagged_by_constant_value"],
+        "自动应用数量": qc_summary["applied_flagged_count"],
+        "最终有效记录数": final_valid,
     }])
 
 
-def _decision_summary(review_table, final_qc_data, auto_qc_data):
-    candidates = review_table[review_table["algorithm_flag"].astype(str).ne("")]
-    auto_missing = int(auto_qc_data["value"].isna().sum())
-    final_missing = int(final_qc_data["value"].isna().sum())
+COLUMN_LABELS = {
+    "record_id": "记录ID",
+    "datetime": "时间",
+    "variable": "变量",
+    "original_value": "原始值",
+    "current_qc_value": "当前质控值",
+    "qc_value": "质控后值",
+    "existing_rule": "已有规则",
+    "algorithm_flag": "算法标记",
+    "user_decision": "用户决定",
+    "rule": "规则",
+    "reason": "原因",
+    "is_flagged": "是否标记",
+    "is_applied": "是否应用",
+    "parameter": "参数",
+    "decision_source": "决定来源",
+    "display_name_cn": "中文名称",
+    "unit": "单位",
+    "start_time": "开始时间",
+    "end_time": "结束时间",
+    "raw_count": "原始记录数",
+    "valid_count": "有效记录数",
+    "missing_count_after_qc": "质控后缺测数",
+    "mean": "平均值",
+    "max": "最大值",
+    "min": "最小值",
+    "std": "标准差",
+    "date": "日期",
+    "daily_range": "日变化幅度",
+    "year_month": "年月",
+    "monthly_mean": "月平均",
+    "monthly_std": "月标准差",
+}
+
+
+def _display_table(table):
+    return table.rename(columns={key: value for key, value in COLUMN_LABELS.items() if key in table.columns})
+
+
+def _editor_column_config():
     return {
-        "candidate_count": int(len(candidates)),
-        "remove_count": int(review_table["user_decision"].eq("remove").sum()),
-        "keep_count": int(review_table["user_decision"].eq("keep").sum()),
-        "undecided_count": int(review_table["user_decision"].eq("undecided").sum()),
-        "final_removed_count": final_missing,
-        "user_added_removed_count": max(final_missing - auto_missing, 0),
-        "final_valid_count": int(final_qc_data["value"].notna().sum()),
+        "record_id": st.column_config.TextColumn(COLUMN_LABELS["record_id"]),
+        "datetime": st.column_config.DatetimeColumn(COLUMN_LABELS["datetime"]),
+        "original_value": st.column_config.NumberColumn(COLUMN_LABELS["original_value"]),
+        "existing_rule": st.column_config.TextColumn(COLUMN_LABELS["existing_rule"]),
+        "algorithm_flag": st.column_config.TextColumn(COLUMN_LABELS["algorithm_flag"]),
+        "current_qc_value": st.column_config.NumberColumn(COLUMN_LABELS["current_qc_value"]),
+        "user_decision": st.column_config.SelectboxColumn(COLUMN_LABELS["user_decision"], options=REVIEW_DECISIONS, required=True),
+    }
+
+
+def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
+    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("physical_range", na=False)
+    return {
+        "原始缺测数": int(qc_summary["missing_before_qc"]),
+        "物理范围删除数": int(qc_summary["removed_by_range"]),
+        "用户确认删除数": int(user_removed.sum()),
+        "最终缺测数": int(final_qc_data["value"].isna().sum()),
+        "最终有效记录数": int(final_qc_data["value"].notna().sum()),
     }
 
 
@@ -285,16 +332,16 @@ def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
     metadata = get_variable_metadata(variable_key)
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("Raw series", "After physical_range"), shared_xaxes=True, shared_yaxes=True)
-    fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="raw", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
-    fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="auto_qc", line={"color": "#d62728", "width": 1}), row=1, col=2)
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 physical_range 后时序"), shared_xaxes=True, shared_yaxes=True)
+    fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
+    fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动规则后", line={"color": "#d62728", "width": 1}), row=1, col=2)
     y_values = raw["value"].dropna()
     if not y_values.empty:
         y_min, y_max = y_values.min(), y_values.max()
         margin = max((y_max - y_min) * 0.05, 1e-6)
         fig.update_yaxes(range=[y_min - margin, y_max + margin])
-    fig.update_layout(title=f"{name} auto-rule comparison", yaxis_title=f"{name}({unit})", hovermode="x unified", margin={"l": 50, "r": 20, "t": 60, "b": 40})
-    fig.update_xaxes(tickformat="%Y/%m/%d")
+    fig.update_layout(title=f"{name}自动规则前后对比", yaxis_title=f"{name}({unit})", hovermode="x unified", margin={"l": 50, "r": 20, "t": 60, "b": 40})
+    fig.update_xaxes(title_text="日期", tickformat="%Y/%m/%d")
     return fig
 
 
@@ -303,9 +350,9 @@ def _create_hourly_daily_figure(hourly, daily, variable_key):
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
     fig = go.Figure()
-    fig.add_trace(go.Scattergl(x=hourly["datetime"], y=hourly["value"], mode="lines", name="hourly", line={"color": "#1f77b4", "width": 1}))
-    fig.add_trace(go.Scatter(x=daily["datetime"], y=daily["value"], mode="lines", name="daily mean", line={"color": "#d62728", "width": 2}))
-    fig.update_layout(title=f"{name} hourly and daily mean", xaxis_title="date", yaxis_title=f"{name}({unit})", hovermode="x unified")
+    fig.add_trace(go.Scattergl(x=hourly["datetime"], y=hourly["value"], mode="lines", name="小时平均", line={"color": "#1f77b4", "width": 1}))
+    fig.add_trace(go.Scattergl(x=daily["datetime"], y=daily["value"], mode="lines", name="日平均", line={"color": "#ff3333", "width": 2}))
+    fig.update_layout(title=f"{name}小时平均与日平均", xaxis_title="日期", yaxis_title=f"{name}({unit})", hovermode="x unified")
     fig.update_xaxes(tickformat="%Y/%m/%d")
     return fig
 
@@ -315,9 +362,9 @@ def _create_anomaly_figure(anomaly, variable_key):
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
     fig = go.Figure()
-    fig.add_trace(go.Scattergl(x=anomaly["datetime"], y=anomaly["anomaly"], mode="lines", name="intraday anomaly", line={"color": "#1f77b4", "width": 1}))
+    fig.add_trace(go.Scattergl(x=anomaly["datetime"], y=anomaly["anomaly"], mode="lines", name="日内距平", line={"color": "#1f77b4", "width": 1}))
     fig.add_hline(y=0, line_color="#333333", line_width=1)
-    fig.update_layout(title=f"{name} intraday anomaly", xaxis_title="date", yaxis_title=f"{name} anomaly({unit})", hovermode="x unified")
+    fig.update_layout(title=f"{name}日内距平", xaxis_title="日期", yaxis_title=f"{name}距平({unit})", hovermode="x unified")
     fig.update_xaxes(tickformat="%Y/%m/%d")
     return fig
 
@@ -362,28 +409,28 @@ def _summary_workbook_bytes(depth_upload, temp_upload, date_range, enable_range,
 
 
 def main():
-    st.set_page_config(page_title="Marine Ranch V2 Stage 4.1 QC", layout="wide")
-    st.title("Marine Ranch V2 Stage 4.1 QC Workflow")
-    st.caption("Auto rules first; algorithm suggestions and manual QC share one review workspace. Downstream analysis uses final_qc_data only.")
+    st.set_page_config(page_title="海洋牧场 V2 Stage 4.1 质控", layout="wide")
+    st.title("海洋牧场 V2 Stage 4.1 质控工作流")
+    st.caption("自动规则先处理；算法候选和人工质控在同一复核区完成。后续分析只使用 final_qc_data。")
 
-    depth_upload = st.sidebar.file_uploader("Upload depth Excel", type=["xls", "xlsx"], key="depth_upload")
-    temp_upload = st.sidebar.file_uploader("Upload temperature Excel", type=["xls", "xlsx"], key="temp_upload")
-    variable_key = st.sidebar.selectbox("Variable", list_v1_variables(), format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
-    enable_range = st.sidebar.checkbox("Enable physical range QC (auto remove)", value=True)
-    enable_hampel = st.sidebar.checkbox("Enable Hampel flags (suggest only)", value=True)
-    enable_constant = st.sidebar.checkbox("Enable constant-value flags (suggest only)", value=True)
+    depth_upload = st.sidebar.file_uploader("上传水深 Excel", type=["xls", "xlsx"], key="depth_upload")
+    temp_upload = st.sidebar.file_uploader("上传温度 Excel", type=["xls", "xlsx"], key="temp_upload")
+    variable_key = st.sidebar.selectbox("变量选择", list_v1_variables(), format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
+    enable_range = st.sidebar.checkbox("启用物理合理范围质控（自动删除）", value=True)
+    enable_hampel = st.sidebar.checkbox("启用 Hampel 候选标记（仅标记）", value=True)
+    enable_constant = st.sidebar.checkbox("启用连续恒定值标记（仅标记）", value=True)
 
     uploaded = depth_upload if variable_key == "depth" else temp_upload
     source_args = _source_args(variable_key, uploaded)
-    st.info(f"Data source: {_source_label(variable_key, uploaded)}")
+    st.info(f"当前数据源：{_source_label(variable_key, uploaded)}")
 
     try:
         preview = _cached_load_excel(variable_key, source_args["source_signature"], source_args["source_path"], source_args["uploaded_bytes"], source_args["uploaded_suffix"])
         min_date = preview["datetime"].min().date()
         max_date = preview["datetime"].max().date()
-        date_range = st.sidebar.date_input("Analysis date range", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+        date_range = st.sidebar.date_input("分析时间范围", value=(min_date, max_date), min_value=min_date, max_value=max_date)
         if len(date_range) != 2:
-            st.warning("Please select start and end dates.")
+            st.warning("请选择完整的开始和结束日期。")
             return
 
         start_ts = pd.Timestamp(date_range[0])
@@ -399,7 +446,7 @@ def main():
 
         raw, auto_qc_data, qc_summary, qc_log, initial_review_table = _get_auto_qc_assets(variable_key, source_args, start_ts, end_ts, enable_range, enable_hampel, enable_constant)
         if raw.empty:
-            st.warning("No data in the selected time range.")
+            st.warning("当前时间范围内没有数据。")
             return
 
         st.session_state["raw_data"] = raw
@@ -408,24 +455,24 @@ def main():
         if st.session_state.get("review_table") is None:
             st.session_state["review_table"] = initial_review_table.copy()
 
-        st.header("Step 1: Automatic Rules")
-        st.dataframe(_health_table(raw, qc_summary), use_container_width=True)
-        st.caption("This comparison shows only physical_range auto removal. Hampel, constant_value, and manual decisions are not applied here.")
+        st.header("第一步：自动规则")
+        st.dataframe(_display_table(_health_table(raw, qc_summary)), use_container_width=True)
+        st.caption("该对比仅展示 physical_range 自动删除结果，不应用 Hampel、constant_value 或人工决策。")
         st.plotly_chart(_create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key), use_container_width=True)
 
-        st.header("Step 2: Candidate Review and Manual QC")
+        st.header("第二步：候选异常确认与人工补充质控")
         review_table = _enforce_physical_range_hard_rule(st.session_state["review_table"])
         c1, c2, c3, c4 = st.columns(4)
-        if c1.button("Remove all Hampel"):
+        if c1.button("全部 Hampel 删除"):
             review_table = _apply_batch_decision(review_table, "hampel", "remove")
             st.session_state["qc_confirmed"] = False
-        if c2.button("Keep all Hampel"):
+        if c2.button("全部 Hampel 保留"):
             review_table = _apply_batch_decision(review_table, "hampel", "keep")
             st.session_state["qc_confirmed"] = False
-        if c3.button("Remove all constant"):
+        if c3.button("全部恒定值删除"):
             review_table = _apply_batch_decision(review_table, "constant_value", "remove")
             st.session_state["qc_confirmed"] = False
-        if c4.button("Keep all constant"):
+        if c4.button("全部恒定值保留"):
             review_table = _apply_batch_decision(review_table, "constant_value", "keep")
             st.session_state["qc_confirmed"] = False
         st.session_state["review_table"] = review_table
@@ -433,10 +480,10 @@ def main():
         final_qc_data, final_qc_log = apply_review_table_decisions(raw, auto_qc_data, qc_log, review_table)
         st.session_state["final_qc_data"] = final_qc_data
         st.session_state["final_qc_log"] = final_qc_log
-        summary_counts = _decision_summary(review_table, final_qc_data, auto_qc_data)
+        summary_counts = _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary)
         st.dataframe(pd.DataFrame([summary_counts]), use_container_width=True)
 
-        st.caption("Left: selectable candidate flags. Right: live final_qc_data preview.")
+        st.caption("左图：可选择的候选异常标记。右图：final_qc_data 实时预览。")
         left, right = st.columns(2)
         with left:
             selected_event = st.plotly_chart(
@@ -448,7 +495,7 @@ def main():
             )
         with right:
             st.plotly_chart(
-                create_final_qc_figure(final_qc_data, raw, variable_key, summary_counts["final_removed_count"], summary_counts["final_valid_count"]),
+                create_final_qc_figure(final_qc_data, raw, variable_key, summary_counts["最终缺测数"], summary_counts["最终有效记录数"]),
                 use_container_width=True,
                 key=f"{variable_key}_final_plot",
             )
@@ -458,45 +505,45 @@ def main():
             st.session_state["selected_record_ids"] = selected_ids
         selected_ids = st.session_state.get("selected_record_ids", [])
         selected_table = review_table[review_table["record_id"].astype(str).isin(selected_ids)].copy()
-        st.subheader("Selected data points")
-        st.dataframe(selected_table, use_container_width=True)
+        st.subheader("已选择的数据点")
+        st.dataframe(_display_table(selected_table), use_container_width=True)
         s1, s2, s3, s4 = st.columns(4)
-        s1.button("Remove selected", disabled=not selected_ids, on_click=_set_selected_decision, args=("remove",))
-        s2.button("Keep selected", disabled=not selected_ids, on_click=_set_selected_decision, args=("keep",))
-        s3.button("Restore selected", disabled=not selected_ids, on_click=_set_selected_decision, args=("manual_keep",))
-        s4.button("Clear selection", disabled=not selected_ids, on_click=_clear_selection)
+        s1.button("删除选中点", disabled=not selected_ids, on_click=_set_selected_decision, args=("remove",))
+        s2.button("保留选中点", disabled=not selected_ids, on_click=_set_selected_decision, args=("keep",))
+        s3.button("恢复选中点", disabled=not selected_ids, on_click=_set_selected_decision, args=("manual_keep",))
+        s4.button("清除当前选择", disabled=not selected_ids, on_click=_clear_selection)
 
-        st.subheader("Manual Review Time Range")
+        st.subheader("人工检查时间范围")
         raw_min = raw["datetime"].min()
         raw_max = raw["datetime"].max()
         default_start = raw_min
         default_end = min(raw_min + pd.Timedelta(days=7), raw_max)
         r1, r2 = st.columns(2)
         with r1:
-            check_start_date = st.date_input("Start date", value=default_start.date(), min_value=raw_min.date(), max_value=raw_max.date(), key="check_start_date")
-            check_start_time = st.time_input("Start time", value=default_start.time().replace(microsecond=0), key="check_start_time")
+            check_start_date = st.date_input("开始日期", value=default_start.date(), min_value=raw_min.date(), max_value=raw_max.date(), key="check_start_date")
+            check_start_time = st.time_input("开始时间", value=default_start.time().replace(microsecond=0), key="check_start_time")
         with r2:
-            check_end_date = st.date_input("End date", value=default_end.date(), min_value=raw_min.date(), max_value=raw_max.date(), key="check_end_date")
-            check_end_time = st.time_input("End time", value=default_end.time().replace(microsecond=0), key="check_end_time")
+            check_end_date = st.date_input("结束日期", value=default_end.date(), min_value=raw_min.date(), max_value=raw_max.date(), key="check_end_date")
+            check_end_time = st.time_input("结束时间", value=default_end.time().replace(microsecond=0), key="check_end_time")
         check_start = pd.Timestamp.combine(check_start_date, check_start_time)
         check_end = pd.Timestamp.combine(check_end_date, check_end_time)
         if check_start > check_end:
-            st.warning("Manual review start time cannot be later than end time.")
+            st.warning("人工检查开始时间不能晚于结束时间。")
             return
         b1, b2 = st.columns(2)
-        b1.button("Remove current range", on_click=_set_range_decision, args=(check_start, check_end, "manual_remove"))
-        b2.button("Restore current range", on_click=_set_range_decision, args=(check_start, check_end, "manual_keep"))
+        b1.button("当前时间范围全部删除", on_click=_set_range_decision, args=(check_start, check_end, "manual_remove"))
+        b2.button("当前时间范围全部恢复为原始状态", on_click=_set_range_decision, args=(check_start, check_end, "manual_keep"))
 
         range_mask = (review_table["datetime"] >= check_start) & (review_table["datetime"] <= check_end)
         range_table = review_table.loc[range_mask].copy()
-        st.subheader("Current Range Point Editor")
-        st.caption(f"Showing {check_start} to {check_end}: {len(range_table)} records.")
+        st.subheader("当前时间范围逐点编辑表")
+        st.caption(f"当前表格仅显示 {check_start} 至 {check_end}，共 {len(range_table)} 条记录。")
         edited_range = st.data_editor(
             range_table,
             use_container_width=True,
             hide_index=True,
             height=320,
-            column_config={"user_decision": st.column_config.SelectboxColumn("user_decision", options=REVIEW_DECISIONS, required=True)},
+            column_config=_editor_column_config(),
             disabled=["record_id", "datetime", "original_value", "existing_rule", "algorithm_flag", "current_qc_value"],
             key=f"{variable_key}_review_editor",
         )
@@ -505,29 +552,29 @@ def main():
             st.session_state["qc_confirmed"] = False
             st.rerun()
 
-        st.subheader("Final QC Log")
+        st.subheader("最终质控日志")
         final_log_table = build_qc_log_table(final_qc_log)
-        rule_options = ["all"] + sorted(final_log_table["rule"].dropna().unique().tolist()) if not final_log_table.empty else ["all"]
-        selected_rule = st.selectbox("Filter by rule", rule_options)
-        shown_log = final_log_table if selected_rule == "all" else final_log_table[final_log_table["rule"] == selected_rule]
-        st.dataframe(shown_log, use_container_width=True)
-        if st.button("Generate QC log Excel"):
+        rule_options = ["全部"] + sorted(final_log_table["rule"].dropna().unique().tolist()) if not final_log_table.empty else ["全部"]
+        selected_rule = st.selectbox("按 rule 筛选最终日志", rule_options)
+        shown_log = final_log_table if selected_rule == "全部" else final_log_table[final_log_table["rule"] == selected_rule]
+        st.dataframe(_display_table(shown_log), use_container_width=True)
+        if st.button("生成 QC 日志 Excel"):
             st.session_state["qc_log_excel_bytes"] = _excel_bytes({"qc_log": final_log_table})
         if "qc_log_excel_bytes" in st.session_state:
-            st.download_button("Download final QC log Excel", st.session_state["qc_log_excel_bytes"], "final_qc_log.xlsx")
+            st.download_button("下载最终 QC 日志 Excel", st.session_state["qc_log_excel_bytes"], "final_qc_log.xlsx")
 
-        if st.button("Confirm final QC result"):
+        if st.button("确认最终质控结果"):
             st.session_state["qc_confirmed"] = True
         if not st.session_state.get("qc_confirmed", False):
-            st.info("Confirm final QC before resampling, statistics, plotting, and export.")
+            st.info("请先确认最终质控结果，再进入重采样、统计、绘图和导出。")
             return
 
-        st.header("Analysis After Confirmation")
+        st.header("确认后分析结果")
         hourly, daily, anomaly, metrics, basic_row = _run_after_qc(variable_key, final_qc_data, qc_summary)
-        st.write(f"hourly rows: {len(hourly)}; daily rows: {len(daily)}")
+        st.write(f"hourly 条数：{len(hourly)}；daily 条数：{len(daily)}")
         basic_df = build_basic_statistics_table([basic_row])
-        st.dataframe(basic_df, use_container_width=True)
-        st.download_button("Download current variable statistics CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
+        st.dataframe(_display_table(basic_df), use_container_width=True)
+        st.download_button("下载当前变量统计 CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
         p1, p2 = st.columns(2)
         with p1:
             st.plotly_chart(_create_hourly_daily_figure(hourly, daily, variable_key), use_container_width=True)
@@ -536,19 +583,20 @@ def main():
 
         if variable_key == "temperature":
             monthly_df = build_temperature_monthly_table(metrics)
-            st.dataframe(monthly_df, use_container_width=True)
+            st.dataframe(_display_table(monthly_df), use_container_width=True)
         else:
             depth_range_df = build_depth_daily_range_table(metrics)
-            st.dataframe(depth_range_df, use_container_width=True)
-            st.metric("Max daily range over observation period", round(metrics["max_daily_range"], 4))
+            st.dataframe(_display_table(depth_range_df), use_container_width=True)
+            st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
 
-        if st.button("Generate summary_statistics.xlsx"):
+        st.warning("综合工作簿导出说明：当前变量已人工确认；另一个变量仅完成自动质控，未经人工确认。")
+        if st.button("生成完整 summary_statistics.xlsx"):
             st.session_state["summary_excel_bytes"] = _summary_workbook_bytes(depth_upload, temp_upload, date_range, enable_range, enable_hampel, enable_constant, variable_key, final_qc_data, qc_summary, final_qc_log)
         if "summary_excel_bytes" in st.session_state:
-            st.download_button("Download summary_statistics.xlsx", st.session_state["summary_excel_bytes"], "summary_statistics.xlsx")
+            st.download_button("下载完整 summary_statistics.xlsx", st.session_state["summary_excel_bytes"], "summary_statistics.xlsx")
 
     except Exception as exc:
-        st.error(f"Processing failed: {exc}")
+        st.error(f"处理失败：{exc}")
 
 
 if __name__ == "__main__":

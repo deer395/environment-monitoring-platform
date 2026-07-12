@@ -8,3 +8,5 @@ outputs/
 __pycache__/
 *.pyc
 ~$*
+*.docx
+测试输出/

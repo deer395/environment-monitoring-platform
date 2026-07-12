@@ -179,7 +179,7 @@ def apply_review_table_decisions(raw_data, auto_qc_data, qc_log, review_table):
         manual["variable"] = variable
         manual["qc_value"] = pd.NA
         manual["rule"] = "manual_remove"
-        manual["reason"] = "??????"
+        manual["reason"] = "用户人工判定"
         manual["is_flagged"] = True
         manual["is_applied"] = True
         manual["parameter"] = "manual"
@@ -191,7 +191,7 @@ def apply_review_table_decisions(raw_data, auto_qc_data, qc_log, review_table):
         manual["variable"] = variable
         manual["qc_value"] = manual["original_value"]
         manual["rule"] = "manual_keep"
-        manual["reason"] = "??????"
+        manual["reason"] = "用户人工判定"
         manual["is_flagged"] = True
         manual["is_applied"] = True
         manual["parameter"] = "manual"

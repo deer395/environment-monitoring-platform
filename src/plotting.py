@@ -93,12 +93,12 @@ def _save(fig, output_path):
 
 
 def plot_hourly_daily(hourly_df, daily_df, variable_key, output_path):
-    """Plot hourly raw series and daily mean series, then save as PNG."""
+    """Plot hourly mean and daily mean series, then save as PNG."""
     name, unit = _label(variable_key)
     fig, ax = _new_figure()
-    ax.plot(hourly_df["datetime"], hourly_df["value"], color="#1f77b4", linewidth=0.8, label="原始序列")
-    ax.plot(daily_df["datetime"], daily_df["value"], color="#d62728", linewidth=1.5, label="日平均序列")
-    _style_axis(ax, f"{name}原始序列与日平均序列", "日期", f"{name}({unit})", show_legend=True)
+    ax.plot(hourly_df["datetime"], hourly_df["value"], color="#1f77b4", linewidth=1, label="小时平均", zorder=1)
+    ax.plot(daily_df["datetime"], daily_df["value"], color="#ff3333", linewidth=2, label="日平均", zorder=2)
+    _style_axis(ax, f"{name}小时平均与日平均", "日期", f"{name}({unit})", show_legend=True)
     _apply_y_axis_range(ax, variable_key)
     _format_date_axis(ax)
     _save(fig, output_path)
@@ -252,11 +252,11 @@ def create_qc_candidate_figure(raw_df, qc_log, review_table, variable_key):
                     marker={"color": style["color"], "symbol": style["symbol"], "size": 9},
                     customdata=customdata,
                     hovertemplate=(
-                        "record_id=%{customdata[0]}<br>"
-                        "datetime=%{customdata[1]}<br>"
-                        "original_value=%{customdata[2]}<br>"
-                        "rule=%{customdata[3]}<br>"
-                        "user_decision=%{customdata[4]}<extra></extra>"
+                        "记录ID=%{customdata[0]}<br>"
+                        "时间=%{customdata[1]}<br>"
+                        "原始值=%{customdata[2]}<br>"
+                        "规则=%{customdata[3]}<br>"
+                        "用户决定=%{customdata[4]}<extra></extra>"
                     ),
                 )
             )
@@ -283,12 +283,12 @@ def create_final_qc_figure(final_qc_data, raw_df, variable_key, removed_count, v
             x=final_qc_data["datetime"],
             y=final_qc_data["value"],
             mode="lines",
-            name="final_qc_data",
+            name="最终质控序列",
             line={"color": "#d62728", "width": 1},
         )
     )
     fig.update_layout(
-        title=f"{name}final_qc_data 预览：删除点 {removed_count}，有效记录 {valid_count}",
+        title=f"{name}final_qc_data 预览：最终缺测数 {removed_count}，最终有效记录数 {valid_count}",
         xaxis_title="日期",
         yaxis_title=f"{name}({unit})",
         hovermode="x unified",
