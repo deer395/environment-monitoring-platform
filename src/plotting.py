@@ -380,5 +380,5 @@ def create_final_qc_figure(final_qc_data, raw_df, variable_key, removed_count, v
         margin={"l": 60, "r": 20, "t": 70, "b": 50},
     )
     fig.update_xaxes(tickformat="%Y/%m/%d")
-    fig.update_yaxes(range=_plotly_axis_range(raw_df, variable_key))
+    fig.update_yaxes(range=_plotly_axis_range(final_qc_data, variable_key))
     return fig
