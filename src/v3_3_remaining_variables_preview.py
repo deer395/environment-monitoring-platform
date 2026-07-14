@@ -189,20 +189,21 @@ def _verify_synthetic_qc(variable_key):
     qc_data, qc_summary, qc_log, review_table, final_qc_data, _, resampled, anomaly, metrics, _ = _run_chain(variable_key, raw)
     values = qc_data.set_index("record_id")["value"]
     _assert(pd.isna(values[f"{variable_key}_synthetic_3"]), f"{variable_key} value < 0 should be hard_range removed")
-    _assert(pd.notna(values[f"{variable_key}_synthetic_4"]), f"{variable_key} value == 0 should be retained")
+    _assert(pd.isna(values[f"{variable_key}_synthetic_4"]), f"{variable_key} value == 0 should be sensor_zero removed")
     _assert(pd.notna(values[f"{variable_key}_synthetic_5"]), f"{variable_key} value == 100 should be retained")
     _assert(pd.isna(values[f"{variable_key}_synthetic_6"]), f"{variable_key} value > 100 should be hard_range removed")
     _assert(qc_summary["removed_by_range"] == 2, f"{variable_key} synthetic hard_range should remove only below and above")
+    _assert(qc_summary["removed_by_sensor_zero"] == 1, f"{variable_key} synthetic zero should be removed once")
     _assert(qc_summary["flagged_by_hampel"] >= 1, f"{variable_key} synthetic Hampel candidate missing")
     _assert(qc_summary["flagged_by_constant_value"] >= 1, f"{variable_key} synthetic constant_value candidate missing")
     _assert_algorithm_candidates_only_mark(variable_key, qc_log)
 
-    hard_ids = [f"{variable_key}_synthetic_3", f"{variable_key}_synthetic_6"]
+    hard_ids = [f"{variable_key}_synthetic_3", f"{variable_key}_synthetic_4", f"{variable_key}_synthetic_6"]
     edited = review_table.copy()
     edited.loc[edited["record_id"].isin(hard_ids), "user_decision"] = "manual_keep"
     restored, _ = apply_review_table_decisions(raw, qc_data, qc_log, edited)
     restored_values = restored.set_index("record_id")["value"]
-    _assert(pd.isna(restored_values[hard_ids[0]]) and pd.isna(restored_values[hard_ids[1]]), f"{variable_key} hard_range should not recover")
+    _assert(restored_values[hard_ids].isna().all(), f"{variable_key} automatic removal should not recover")
 
     ordinary_id = review_table[
         review_table["existing_rule"].astype(str).eq("") & review_table["current_qc_value"].notna()
@@ -218,6 +219,7 @@ def _verify_synthetic_qc(variable_key):
     _assert(anomaly is not None and not anomaly.empty, f"{variable_key} synthetic anomaly missing")
     return {
         "synthetic_hard_range_removed": int(qc_summary["removed_by_range"]),
+        "synthetic_sensor_zero_removed": int(qc_summary["removed_by_sensor_zero"]),
         "synthetic_hampel_candidates": int(qc_summary["flagged_by_hampel"]),
         "synthetic_constant_value_candidates": int(qc_summary["flagged_by_constant_value"]),
         "ordinary_manual_remove_ok": True,

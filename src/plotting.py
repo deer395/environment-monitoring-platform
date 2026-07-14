@@ -171,6 +171,7 @@ def plot_qc_flags(raw_df, qc_log, variable_key, output_path):
     fig, ax = _new_figure()
     ax.plot(raw_df["datetime"], raw_df["value"], color="#666666", linewidth=0.8, label="原始序列")
     styles = {
+        "sensor_zero": ("#9467bd", "X", "传感器 0 值无效"),
         "hard_range": ("#d62728", "x", "硬范围异常"),
         "physical_range": ("#d62728", "x", "硬范围异常"),
         "hampel": ("#ff7f0e", "o", "hampel"),
@@ -309,6 +310,7 @@ def create_qc_candidate_figure(raw_df, qc_log, review_table, variable_key, selec
         )
     )
     styles = {
+        "sensor_zero": {"color": "#9467bd", "symbol": "x", "name": "传感器 0 值无效"},
         "hard_range": {"color": "#d62728", "symbol": "x", "name": "硬范围异常"},
         "physical_range": {"color": "#d62728", "symbol": "x", "name": "硬范围异常"},
         "hampel": {"color": "#ff7f0e", "symbol": "circle-open", "name": "Hampel 候选"},

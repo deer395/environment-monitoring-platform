@@ -66,22 +66,30 @@ def _run_hard_range_boundary_checks():
         values = qc_data.set_index("record_id")["value"]
         _assert(pd.isna(values["below"]), f"{variable_key} below hard_min should be removed")
         _assert(pd.isna(values["above"]), f"{variable_key} above hard_max should be removed")
-        _assert(pd.notna(values["lower_boundary"]), f"{variable_key} lower boundary should be kept")
+        if hard_min == 0:
+            _assert(pd.isna(values["lower_boundary"]), f"{variable_key} zero boundary should be sensor_zero removed")
+            _assert(qc_summary["removed_by_sensor_zero"] == 1, f"{variable_key} sensor_zero count mismatch")
+        else:
+            _assert(pd.notna(values["lower_boundary"]), f"{variable_key} lower boundary should be kept")
         _assert(pd.notna(values["upper_boundary"]), f"{variable_key} upper boundary should be kept")
 
         for decision in ("keep", "manual_keep"):
             edited = review.copy()
-            edited.loc[edited["record_id"].isin(["below", "above"]), "user_decision"] = decision
+            edited.loc[edited["record_id"].isin(["below", "lower_boundary", "above"]), "user_decision"] = decision
             final_qc_data, _ = apply_review_table_decisions(raw, qc_data, qc_log, edited)
             final_values = final_qc_data.set_index("record_id")["value"]
             _assert(pd.isna(final_values["below"]), f"{variable_key} hard low should not recover by {decision}")
             _assert(pd.isna(final_values["above"]), f"{variable_key} hard high should not recover by {decision}")
+            if hard_min == 0:
+                _assert(pd.isna(final_values["lower_boundary"]), f"{variable_key} sensor zero should not recover by {decision}")
 
-        selected_restore = _apply_selected_decision(review, ["below", "above"], "manual_keep")
+        selected_restore = _apply_selected_decision(review, ["below", "lower_boundary", "above"], "manual_keep")
         final_selected_restore, _ = apply_review_table_decisions(raw, qc_data, qc_log, selected_restore)
         selected_values = final_selected_restore.set_index("record_id")["value"]
         _assert(pd.isna(selected_values["below"]), f"{variable_key} hard low should not recover from plot restore")
         _assert(pd.isna(selected_values["above"]), f"{variable_key} hard high should not recover from plot restore")
+        if hard_min == 0:
+            _assert(pd.isna(selected_values["lower_boundary"]), f"{variable_key} sensor zero should not recover from plot restore")
 
         records.append({"variable": variable_key, "hard_min": hard_min, "hard_max": hard_max, "hard_removed": qc_summary["removed_by_range"]})
     return records

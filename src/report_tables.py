@@ -98,7 +98,13 @@ def build_metric_detail_tables(metrics_by_variable):
     return tables
 
 
-def build_summary_workbook_sheets(basic_rows, qc_summaries, metrics_by_variable, qc_log=None):
+def build_summary_workbook_sheets(
+    basic_rows,
+    qc_summaries,
+    metrics_by_variable,
+    qc_log=None,
+    processing_status=None,
+):
     """Build workbook sheets from actual generated metrics instead of fixed variable sheets."""
     sheets = {
         "basic_statistics": build_basic_statistics_table(basic_rows),
@@ -107,6 +113,8 @@ def build_summary_workbook_sheets(basic_rows, qc_summaries, metrics_by_variable,
     sheets.update(build_metric_detail_tables(metrics_by_variable))
     if qc_log is not None:
         sheets["qc_log"] = build_qc_log_table(qc_log)
+    if processing_status is not None:
+        sheets["processing_status"] = processing_status.copy()
     return sheets
 
 
@@ -121,6 +129,7 @@ def build_qc_summary_table(qc_summaries):
                 "display_name_cn": metadata.get("display_name_cn", variable_key),
                 "raw_count": summary.get("raw_count", summary.get("raw_record_count")),
                 "missing_before_qc": summary.get("missing_before_qc", summary.get("raw_missing_count")),
+                "removed_by_sensor_zero": summary.get("removed_by_sensor_zero", 0),
                 "removed_by_intraday_2std": summary.get("daily_2std_removed_count", 0),
                 "removed_by_valid_range": summary.get("removed_by_range", summary.get("range_removed_count")),
                 "flagged_by_hampel": summary.get("flagged_by_hampel", 0),

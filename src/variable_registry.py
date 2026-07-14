@@ -70,6 +70,7 @@ def _standard_capabilities():
         "has_monthly_statistics": True,
         "has_daily_range": True,
         "special_handling": None,
+        "zero_is_invalid": True,
     }
 
 
@@ -389,7 +390,7 @@ VARIABLE_REGISTRY = {
         "display_name": "PAHs",
         "display_name_cn": "多环芳烃",
         "display_name_en": "Polycyclic Aromatic Hydrocarbons",
-        "unit": "unknown",
+        "unit": "ppb",
         "source": "excel",
         "default_file": "多环芳烃.xls",
         "default_file_name": "多环芳烃.xls",

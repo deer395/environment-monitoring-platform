@@ -10,7 +10,7 @@ QC_LOG_COLUMNS = [
 ]
 
 QC_SUMMARY_FIELDS = [
-    "raw_count", "missing_before_qc", "removed_by_range", "flagged_by_hampel",
+    "raw_count", "missing_before_qc", "removed_by_sensor_zero", "removed_by_range", "flagged_by_hampel",
     "flagged_by_rate_change", "flagged_by_constant_value", "applied_flagged_count",
     "missing_after_qc",
 ]
@@ -22,6 +22,11 @@ def _get_hard_range(variable_metadata):
         rules.get("hard_min", variable_metadata.get("hard_min", variable_metadata.get("valid_min"))),
         rules.get("hard_max", variable_metadata.get("hard_max", variable_metadata.get("valid_max"))),
     )
+
+
+def _sensor_zero_enabled(variable_metadata):
+    """Return whether exact sensor-coded zero values are invalid for this variable."""
+    return bool(variable_metadata.get("zero_is_invalid", False))
 
 
 def _empty_qc_log():
@@ -133,6 +138,21 @@ def apply_quality_control(
     logs = []
     missing_before = int(result["value"].isna().sum())
 
+    sensor_zero_mask = result["value"].notna() & False
+    if _sensor_zero_enabled(variable_metadata):
+        sensor_zero_mask = result["value"].notna() & result["value"].eq(0.0)
+    logs.append(
+        _make_log_rows(
+            result,
+            sensor_zero_mask,
+            "sensor_zero",
+            "当前项目传感器异常时可能输出 0.0，按传感器无效值自动删除",
+            "zero_is_invalid=True, exact_value=0.0",
+            True,
+        )
+    )
+    result.loc[sensor_zero_mask, "value"] = pd.NA
+
     hard_min, hard_max = _get_hard_range(variable_metadata)
     range_mask = result["value"].notna() & False
     if enable_valid_range and hard_min is not None:
@@ -175,6 +195,7 @@ def apply_quality_control(
     qc_summary = {
         "raw_count": int(len(result)),
         "missing_before_qc": missing_before,
+        "removed_by_sensor_zero": int(sensor_zero_mask.sum()),
         "removed_by_range": int(range_mask.sum()),
         "removed_by_hard_range": int(range_mask.sum()),
         "flagged_by_hampel": int((qc_log["rule"] == "hampel").sum()) if not qc_log.empty else 0,

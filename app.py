@@ -84,6 +84,7 @@ def _current_state_key(name):
 def _qc_params_key(variable_key):
     metadata = get_variable_metadata(variable_key)
     return (
+        metadata.get("zero_is_invalid", False),
         metadata.get("hard_min"),
         metadata.get("hard_max"),
         metadata.get("valid_min"),
@@ -94,6 +95,83 @@ def _qc_params_key(variable_key):
         metadata.get("constant_value_window"),
         metadata.get("constant_value_tolerance"),
     )
+
+
+def _build_qc_token(variable_key, source_signature, analysis_start, analysis_end, enable_range, enable_hampel, enable_constant):
+    return (
+        f"{variable_key}|{source_signature}|{pd.Timestamp(analysis_start).isoformat()}|"
+        f"{pd.Timestamp(analysis_end).isoformat()}|{enable_range}|{enable_hampel}|"
+        f"{enable_constant}|{_qc_params_key(variable_key)}"
+    )
+
+
+def _automatic_remove_mask(table):
+    return table["existing_rule"].astype(str).str.contains("sensor_zero|hard_range|physical_range", na=False)
+
+
+def _save_confirmed_qc_assets(variable_key, source_signature, analysis_start, analysis_end, qc_token):
+    st.session_state[_state_key(variable_key, "confirmed_qc_assets")] = {
+        "qc_confirmed": True,
+        "final_qc_data": st.session_state.get(_state_key(variable_key, "final_qc_data")),
+        "final_qc_log": st.session_state.get(_state_key(variable_key, "final_qc_log")),
+        "qc_summary": st.session_state.get(_state_key(variable_key, "qc_summary")),
+        "review_table": st.session_state.get(_state_key(variable_key, "review_table")),
+        "source_signature": source_signature,
+        "analysis_start": pd.Timestamp(analysis_start),
+        "analysis_end": pd.Timestamp(analysis_end),
+        "qc_token": qc_token,
+    }
+    st.session_state[_state_key(variable_key, "qc_confirmed")] = True
+    st.session_state.pop(_state_key(variable_key, "confirmation_invalid_reason"), None)
+
+
+def _confirmed_asset_status(variable_key, upload, enable_range, enable_hampel, enable_constant, current_context=None):
+    def invalidate(reason):
+        st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+        st.session_state[_state_key(variable_key, "confirmation_invalid_reason")] = reason
+        return None, reason
+
+    asset = st.session_state.get(_state_key(variable_key, "confirmed_qc_assets"))
+    if not asset:
+        return None, "仅自动质控"
+    try:
+        source_signature = _source_args(variable_key, upload)["source_signature"]
+    except FileNotFoundError:
+        return invalidate("未加载")
+    if asset.get("source_signature") != source_signature:
+        return invalidate("数据源已变化，需重新确认")
+    analysis_start = asset.get("analysis_start")
+    analysis_end = asset.get("analysis_end")
+    if current_context is not None and variable_key == current_context["variable_key"]:
+        if pd.Timestamp(analysis_start) != pd.Timestamp(current_context["analysis_start"]) or pd.Timestamp(analysis_end) != pd.Timestamp(current_context["analysis_end"]):
+            return invalidate("时间范围已变化，需重新确认")
+        expected_token = current_context["qc_token"]
+    else:
+        expected_token = _build_qc_token(variable_key, source_signature, analysis_start, analysis_end, enable_range, enable_hampel, enable_constant)
+    if asset.get("qc_token") != expected_token:
+        return invalidate("自动质控规则已变化，需重新确认")
+    if not asset.get("qc_confirmed") or asset.get("final_qc_data") is None or asset.get("qc_summary") is None:
+        return None, "仅自动质控"
+    return asset, "已人工确认"
+
+
+def _collect_confirmed_qc_assets(uploads, enable_range, enable_hampel, enable_constant, current_context=None):
+    assets, rows = {}, []
+    for variable_key, upload in uploads.items():
+        metadata = get_variable_metadata(variable_key)
+        asset, status = _confirmed_asset_status(variable_key, upload, enable_range, enable_hampel, enable_constant, current_context)
+        if asset is not None:
+            assets[variable_key] = asset
+        saved = st.session_state.get(_state_key(variable_key, "confirmed_qc_assets"), {})
+        rows.append({
+            "variable_key": variable_key,
+            "中文名称": metadata.get("display_name_cn", variable_key),
+            "数据源状态": "已加载" if asset is not None else ("未加载" if status == "未加载" else "数据源可用"),
+            "人工确认状态": status,
+            "确认时间范围": f"{saved.get('analysis_start')} 至 {saved.get('analysis_end')}" if saved.get("analysis_start") is not None else "",
+            "当前结果是否有效": "是" if asset is not None else "否",
+        })
+    return assets, pd.DataFrame(rows)
 
 
 @st.cache_data(show_spinner=False)
@@ -155,77 +233,6 @@ def _get_auto_qc_assets(variable_key, source_args, start_ts, end_ts, enable_rang
     )
 
 
-def _run_after_qc(variable_key, final_qc_data, qc_summary):
-    metadata = get_variable_metadata(variable_key)
-    resampled = resample_configured(final_qc_data, metadata)
-    anomaly = calculate_configured_anomaly(resampled, metadata)
-    metric_source = resampled.get("hourly")
-    if metric_source is None:
-        metric_source = resampled.get("daily")
-    if metric_source is None:
-        metric_source = final_qc_data
-    metrics = calculate_metrics(
-        variable_key,
-        metric_source,
-        resampled.get("daily"),
-        anomaly,
-        metadata=metadata,
-        base_data=metric_source,
-    )
-    basic_row = build_basic_statistics_row(variable_key, metric_source, metrics, qc_summary)
-    return resampled, anomaly, metrics, basic_row
-
-
-def _health_table(raw, qc_summary, final_qc_data=None):
-    final_valid = None if final_qc_data is None else int(final_qc_data["value"].notna().sum())
-    return pd.DataFrame([{
-        "原始记录数": qc_summary["raw_count"],
-        "原始缺测数": qc_summary["missing_before_qc"],
-        "时间范围": f"{raw['datetime'].min()} 至 {raw['datetime'].max()}",
-        "重复时间数量": int(raw["datetime"].duplicated().sum()),
-        "硬范围自动删除数": qc_summary["removed_by_range"],
-        "Hampel 候选数": qc_summary["flagged_by_hampel"],
-        "恒定值候选数": qc_summary["flagged_by_constant_value"],
-        "自动应用数量": qc_summary["applied_flagged_count"],
-        "最终有效记录数": final_valid,
-    }])
-
-
-COLUMN_LABELS = {
-    "record_id": "记录ID",
-    "datetime": "时间",
-    "variable": "变量",
-    "original_value": "原始值",
-    "current_qc_value": "当前质控值",
-    "qc_value": "质控后值",
-    "existing_rule": "已有规则",
-    "algorithm_flag": "算法标记",
-    "user_decision": "用户决定",
-    "rule": "规则",
-    "reason": "原因",
-    "is_flagged": "是否标记",
-    "is_applied": "是否应用",
-    "parameter": "参数",
-    "decision_source": "决定来源",
-    "display_name_cn": "中文名称",
-    "unit": "单位",
-    "start_time": "开始时间",
-    "end_time": "结束时间",
-    "raw_count": "原始记录数",
-    "valid_count": "有效记录数",
-    "missing_count_after_qc": "质控后缺测数",
-    "mean": "平均值",
-    "max": "最大值",
-    "min": "最小值",
-    "std": "标准差",
-    "date": "日期",
-    "daily_range": "日变化幅度",
-    "year_month": "年月",
-    "monthly_mean": "月平均",
-    "monthly_std": "月标准差",
-}
-
-
 def _display_table(table):
     return table.rename(columns={key: value for key, value in COLUMN_LABELS.items() if key in table.columns})
 
@@ -242,22 +249,9 @@ def _editor_column_config():
     }
 
 
-def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
-    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
-    return {
-        "原始缺测数": int(qc_summary["missing_before_qc"]),
-        "硬范围自动删除数": int(qc_summary["removed_by_range"]),
-        "Hampel 候选数": int(qc_summary["flagged_by_hampel"]),
-        "恒定值候选数": int(qc_summary["flagged_by_constant_value"]),
-        "人工删除数": int(user_removed.sum()),
-        "最终缺测数": int(final_qc_data["value"].isna().sum()),
-        "最终有效记录数": int(final_qc_data["value"].notna().sum()),
-    }
-
-
 def _enforce_physical_range_hard_rule(table):
     result = table.copy()
-    physical_mask = result["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
+    physical_mask = _automatic_remove_mask(result)
     result.loc[physical_mask, "user_decision"] = "remove"
     return result
 
@@ -272,7 +266,7 @@ def _apply_batch_decision(table, rule, decision):
 def _apply_range_decision(table, start_ts, end_ts, decision):
     result = table.copy()
     mask = (result["datetime"] >= start_ts) & (result["datetime"] <= end_ts)
-    physical_mask = result["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
+    physical_mask = _automatic_remove_mask(result)
     if decision in {"manual_keep", "keep", "undecided"}:
         mask = mask & ~physical_mask
     result.loc[mask, "user_decision"] = decision
@@ -320,7 +314,7 @@ def _apply_selected_decision(table, record_ids, decision):
     if not record_ids:
         return _enforce_physical_range_hard_rule(result)
     mask = result["record_id"].astype(str).isin([str(item) for item in record_ids])
-    physical_mask = result["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
+    physical_mask = _automatic_remove_mask(result)
     if decision == "remove":
         algorithm_mask = mask & result["algorithm_flag"].astype(str).ne("")
         ordinary_mask = mask & ~algorithm_mask & ~physical_mask
@@ -355,78 +349,98 @@ def _set_range_decision(start_ts, end_ts, decision):
         st.session_state[_current_state_key("qc_confirmed")] = False
 
 
-def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
-    metadata = get_variable_metadata(variable_key)
-    name = metadata.get("display_name_cn", variable_key)
-    unit = metadata.get("unit", "")
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 hard_range 后时序"), shared_xaxes=True, shared_yaxes=True)
-    fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
-    fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动规则后", line={"color": "#d62728", "width": 1}), row=1, col=2)
-    y_values = raw["value"].dropna()
-    if not y_values.empty:
-        y_min, y_max = y_values.min(), y_values.max()
-        margin = max((y_max - y_min) * 0.05, 1e-6)
-        fig.update_yaxes(range=[y_min - margin, y_max + margin])
-    fig.update_layout(title=f"{name}自动规则前后对比", yaxis_title=f"{name}({unit})", hovermode="x unified", margin={"l": 50, "r": 20, "t": 60, "b": 40})
-    fig.update_xaxes(title_text="日期", tickformat="%Y/%m/%d")
-    return fig
-
-
-def _create_hourly_daily_figure(hourly, daily, variable_key):
-    metadata = get_variable_metadata(variable_key)
-    name = metadata.get("display_name_cn", variable_key)
-    unit = metadata.get("unit", "")
-    fig = go.Figure()
-    fig.add_trace(go.Scattergl(x=hourly["datetime"], y=hourly["value"], mode="lines", name="小时平均", line={"color": "#1f77b4", "width": 1}))
-    fig.add_trace(go.Scattergl(x=daily["datetime"], y=daily["value"], mode="lines", name="日平均", line={"color": "#ff3333", "width": 2}))
-    fig.update_layout(title=f"{name}小时平均与日平均", xaxis_title="日期", yaxis_title=f"{name}({unit})", hovermode="x unified")
-    fig.update_xaxes(tickformat="%Y/%m/%d")
-    return fig
-
-
-def _create_anomaly_figure(anomaly, variable_key):
-    metadata = get_variable_metadata(variable_key)
-    name = metadata.get("display_name_cn", variable_key)
-    unit = metadata.get("unit", "")
-    fig = go.Figure()
-    fig.add_trace(go.Scattergl(x=anomaly["datetime"], y=anomaly["anomaly"], mode="lines", name="日内距平", line={"color": "#1f77b4", "width": 1}))
-    fig.add_hline(y=0, line_color="#333333", line_width=1)
-    fig.update_layout(title=f"{name}日内距平", xaxis_title="日期", yaxis_title=f"{name}距平({unit})", hovermode="x unified")
-    fig.update_xaxes(tickformat="%Y/%m/%d")
-    return fig
-
-
 def _excel_bytes(sheets):
     output = BytesIO()
     with pd.ExcelWriter(output) as writer:
         for sheet_name, table in sheets.items():
-            table.to_excel(writer, sheet_name=sheet_name, index=False)
+            table.to_excel(writer, sheet_name=sheet_name[:31], index=False)
     output.seek(0)
     return output.getvalue()
 
 
-def _summary_workbook_bytes(uploads, date_range, enable_range, enable_hampel, enable_constant, current_variable, current_final_qc_data, current_qc_summary, current_final_qc_log):
+def _summary_workbook_bytes(uploads, enable_range, enable_hampel, enable_constant, confirmed_qc_assets):
     all_rows, all_qc, all_metrics, all_logs = [], {}, {}, []
-    start_ts = pd.Timestamp(date_range[0])
-    end_ts = pd.Timestamp(date_range[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+    processing_rows = []
     for key, upload in uploads.items():
-        args = _source_args(key, upload)
-        raw, auto_qc, qc_summary, qc_log, review = _get_auto_qc_assets(key, args, start_ts, end_ts, enable_range, enable_hampel, enable_constant)
-        if key == current_variable and current_final_qc_data is not None:
-            final_qc = current_final_qc_data
-            final_log = current_final_qc_log
-            summary_for_stats = current_qc_summary or qc_summary
-        else:
-            final_qc, final_log = apply_manual_qc_decisions(raw, auto_qc, qc_log)
-            summary_for_stats = qc_summary
-        resampled, anomaly, metrics, row = _run_after_qc(key, final_qc, summary_for_stats)
-        all_rows.append(row)
-        all_qc[key] = summary_for_stats
-        all_metrics[key] = metrics
-        if final_log is not None:
-            all_logs.append(final_log)
+        metadata = get_variable_metadata(key)
+        source = _source_label(key, upload) if upload is not None or DEFAULT_FILES[key].exists() else "未提供数据源"
+        status = {
+            "variable_key": key,
+            "display_name_cn": metadata.get("display_name_cn", key),
+            "data_source": source,
+            "start_time": pd.NaT,
+            "end_time": pd.NaT,
+            "auto_qc_completed": False,
+            "manual_qc_confirmed": False,
+            "processing_status": "skipped",
+            "note": "",
+        }
+        try:
+            if upload is None and not DEFAULT_FILES[key].exists():
+                status["note"] = "未上传且默认文件不存在"
+                processing_rows.append(status)
+                continue
+            args = _source_args(key, upload)
+            loaded = _cached_load_excel(
+                key,
+                args["source_signature"],
+                args["source_path"],
+                args["uploaded_bytes"],
+                args["uploaded_suffix"],
+            )
+            if loaded.empty:
+                status["note"] = "数据源没有可读取记录"
+                processing_rows.append(status)
+                continue
+            confirmed = confirmed_qc_assets.get(key)
+            if confirmed is not None:
+                raw = loaded[
+                    (loaded["datetime"] >= pd.Timestamp(confirmed["analysis_start"]))
+                    & (loaded["datetime"] <= pd.Timestamp(confirmed["analysis_end"]))
+                ].reset_index(drop=True)
+                qc_summary = confirmed["qc_summary"]
+                final_qc = confirmed["final_qc_data"]
+                final_log = confirmed.get("final_qc_log")
+                status["manual_qc_confirmed"] = True
+                status["note"] = "使用该变量已人工确认的 final_qc_data"
+            else:
+                raw = loaded
+                auto_qc, qc_summary, qc_log = apply_quality_control(
+                    raw,
+                    metadata,
+                    enable_intraday_2std=False,
+                    enable_valid_range=enable_range,
+                    enable_hampel=enable_hampel,
+                    enable_constant_value=enable_constant,
+                )
+                final_qc, final_log = apply_manual_qc_decisions(raw, auto_qc, qc_log)
+                status["note"] = "仅完成自动质控，未进行人工确认（含 sensor_zero 规则）"
+            if raw.empty or final_qc.empty:
+                status["note"] = "当前分析范围内没有数据"
+                processing_rows.append(status)
+                continue
+            status["start_time"] = final_qc["datetime"].min()
+            status["end_time"] = final_qc["datetime"].max()
+            status["auto_qc_completed"] = True
+            status["processing_status"] = "processed"
+            resampled, anomaly, metrics, row = _run_after_qc(key, final_qc, qc_summary)
+            all_rows.append(row)
+            all_qc[key] = qc_summary
+            all_metrics[key] = metrics
+            if final_log is not None:
+                all_logs.append(final_log)
+        except Exception as exc:
+            status["processing_status"] = "skipped"
+            status["note"] = f"处理失败：{exc}"
+        processing_rows.append(status)
     combined_log = pd.concat(all_logs, ignore_index=True) if all_logs else None
-    sheets = build_summary_workbook_sheets(all_rows, all_qc, all_metrics, combined_log)
+    sheets = build_summary_workbook_sheets(
+        all_rows,
+        all_qc,
+        all_metrics,
+        combined_log,
+        processing_status=pd.DataFrame(processing_rows),
+    )
     return _excel_bytes(sheets)
 
 def _health_table(raw, qc_summary, final_qc_data=None):
@@ -436,6 +450,7 @@ def _health_table(raw, qc_summary, final_qc_data=None):
         "原始缺测数": qc_summary["missing_before_qc"],
         "时间范围": f"{raw['datetime'].min()} 至 {raw['datetime'].max()}",
         "重复时间数量": int(raw["datetime"].duplicated().sum()),
+        "传感器 0 值自动删除数": qc_summary.get("removed_by_sensor_zero", 0),
         "硬范围自动删除数": qc_summary["removed_by_range"],
         "Hampel 候选数": qc_summary["flagged_by_hampel"],
         "恒定值候选数": qc_summary["flagged_by_constant_value"],
@@ -484,9 +499,10 @@ COLUMN_LABELS = {
 
 
 def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
-    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~review_table["existing_rule"].astype(str).str.contains("hard_range|physical_range", na=False)
+    user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~_automatic_remove_mask(review_table)
     return {
         "原始缺测数": int(qc_summary["missing_before_qc"]),
+        "传感器 0 值自动删除数": int(qc_summary.get("removed_by_sensor_zero", 0)),
         "硬范围自动删除数": int(qc_summary["removed_by_range"]),
         "Hampel 候选数": int(qc_summary["flagged_by_hampel"]),
         "恒定值候选数": int(qc_summary["flagged_by_constant_value"]),
@@ -500,7 +516,7 @@ def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
     metadata = get_variable_metadata(variable_key)
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用 hard_range 后时序"), shared_xaxes=True, shared_yaxes=True)
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "仅应用传感器无效值和 hard_range 后时序"), shared_xaxes=True, shared_yaxes=True)
     fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
     fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动规则后", line={"color": "#d62728", "width": 1}), row=1, col=2)
     y_values = raw["value"].dropna()
@@ -537,6 +553,30 @@ def _create_anomaly_figure(anomaly, variable_key):
     return fig
 
 
+def _create_monthly_statistics_figure(monthly, variable_key):
+    metadata = get_variable_metadata(variable_key)
+    name = metadata.get("display_name_cn", variable_key)
+    unit = metadata.get("unit", "")
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=monthly["year_month"].astype(str),
+            y=monthly["monthly_mean"],
+            mode="lines+markers",
+            name="月平均",
+            error_y={"type": "data", "array": monthly["monthly_std"], "visible": True},
+            line={"color": "#1f77b4", "width": 2},
+        )
+    )
+    fig.update_layout(
+        title=f"{name}月平均和月标准差",
+        xaxis_title="年月",
+        yaxis_title=f"{name}({unit})",
+        hovermode="x unified",
+    )
+    return fig
+
+
 def _run_after_qc(variable_key, final_qc_data, qc_summary):
     metadata = get_variable_metadata(variable_key)
     resampled = resample_configured(final_qc_data, metadata)
@@ -555,8 +595,9 @@ def _run_after_qc(variable_key, final_qc_data, qc_summary):
 
 
 def main():
-    st.set_page_config(page_title="海洋牧场 V3.2 通用变量质控", layout="wide")
-    st.title("海洋牧场 V3.2 通用变量质控工作流")
+    st.set_page_config(page_title="环境监测数据质控与分析工具", layout="wide")
+    st.title("环境监测数据质控与分析工具")
+    st.caption("当前版本：V3 通用多变量版")
     st.caption("自动规则先处理；算法候选和人工质控在同一复核区完成。后续分析只使用 final_qc_data。")
 
     variable_keys = list(list_enabled_variables())
@@ -586,8 +627,18 @@ def main():
 
         start_ts = pd.Timestamp(date_range[0])
         end_ts = pd.Timestamp(date_range[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        token = f"{variable_key}|{source_args['source_signature']}|{start_ts.isoformat()}|{end_ts.isoformat()}|{enable_range}|{enable_hampel}|{enable_constant}|{_qc_params_key(variable_key)}"
+        token = _build_qc_token(
+            variable_key,
+            source_args["source_signature"],
+            start_ts,
+            end_ts,
+            enable_range,
+            enable_hampel,
+            enable_constant,
+        )
         if st.session_state.get(_state_key(variable_key, "qc_token")) != token:
+            if st.session_state.get(_state_key(variable_key, "confirmed_qc_assets")):
+                st.session_state[_state_key(variable_key, "confirmation_invalid_reason")] = "自动质控规则、数据源或时间范围已变化，请重新确认该变量。"
             st.session_state[_state_key(variable_key, "qc_token")] = token
             st.session_state[_state_key(variable_key, "qc_confirmed")] = False
             st.session_state[_state_key(variable_key, "review_table")] = None
@@ -603,12 +654,16 @@ def main():
         st.session_state[_state_key(variable_key, "raw_data")] = raw
         st.session_state[_state_key(variable_key, "auto_qc_data")] = auto_qc_data
         st.session_state[_state_key(variable_key, "qc_log")] = qc_log
+        st.session_state[_state_key(variable_key, "qc_summary")] = qc_summary
+        st.session_state[_state_key(variable_key, "source_signature")] = source_args["source_signature"]
+        st.session_state[_state_key(variable_key, "analysis_start")] = start_ts
+        st.session_state[_state_key(variable_key, "analysis_end")] = end_ts
         if st.session_state.get(_state_key(variable_key, "review_table")) is None:
             st.session_state[_state_key(variable_key, "review_table")] = initial_review_table.copy()
 
         st.header("第一步：自动规则")
         st.dataframe(_display_table(_health_table(raw, qc_summary)), use_container_width=True)
-        st.caption("该对比仅展示 hard_range 自动删除结果，不应用 Hampel、constant_value 或人工决策。")
+        st.caption("该对比仅展示传感器无效值和 hard_range 自动删除结果，不应用 Hampel、constant_value 或人工决策。")
         st.plotly_chart(_create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key), use_container_width=True)
 
         st.header("第二步：候选异常确认与人工补充质控")
@@ -717,7 +772,7 @@ def main():
             st.download_button("下载 QC 日志 Excel", st.session_state[_state_key(variable_key, "qc_log_excel_bytes")], "final_qc_log.xlsx")
 
         if st.button("确认最终质控结果"):
-            st.session_state[_state_key(variable_key, "qc_confirmed")] = True
+            _save_confirmed_qc_assets(variable_key, source_args["source_signature"], start_ts, end_ts, token)
         if not st.session_state.get(_state_key(variable_key, "qc_confirmed"), False):
             st.info("请先确认最终质控结果，再进入重采样、统计、绘图和导出。")
             return
@@ -737,14 +792,44 @@ def main():
 
         st.subheader("月平均和月标准差")
         st.dataframe(_display_table(metrics["monthly"]), use_container_width=True)
+        st.plotly_chart(_create_monthly_statistics_figure(metrics["monthly"], variable_key), use_container_width=True)
         st.subheader("日变化幅度")
         st.dataframe(_display_table(metrics["daily_range"]), use_container_width=True)
         if pd.notna(metrics.get("max_daily_range")):
             st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
 
-        st.warning("综合工作簿导出说明：当前变量已人工确认；其他变量仅完成自动质控，未经人工确认。")
+        current_context = {
+            "variable_key": variable_key,
+            "analysis_start": start_ts,
+            "analysis_end": end_ts,
+            "qc_token": token,
+        }
+        confirmed_qc_assets, confirmation_table = _collect_confirmed_qc_assets(
+            uploads,
+            enable_range,
+            enable_hampel,
+            enable_constant,
+            current_context,
+        )
+        st.subheader("综合导出确认状态")
+        st.dataframe(confirmation_table, use_container_width=True, hide_index=True)
+        confirmed_names = confirmation_table.loc[confirmation_table["人工确认状态"].eq("已人工确认"), "中文名称"].tolist()
+        automatic_names = confirmation_table.loc[confirmation_table["人工确认状态"].eq("仅自动质控"), "中文名称"].tolist()
+        unloaded_names = confirmation_table.loc[confirmation_table["人工确认状态"].eq("未加载"), "中文名称"].tolist()
+        if confirmed_names and not automatic_names and not unloaded_names:
+            st.success("所有已加载变量均已完成人工确认，综合工作簿将使用各变量的 final_qc_data。")
+        else:
+            st.info("综合工作簿将对已确认变量使用 final_qc_data，对未确认变量仅使用自动质控结果。")
+        if st.session_state.get(_state_key(variable_key, "confirmation_invalid_reason")):
+            st.warning(st.session_state[_state_key(variable_key, "confirmation_invalid_reason")])
         if st.button("生成完整 summary_statistics.xlsx"):
-            st.session_state[_state_key(variable_key, "summary_excel_bytes")] = _summary_workbook_bytes(uploads, date_range, enable_range, enable_hampel, enable_constant, variable_key, final_qc_data, qc_summary, final_qc_log)
+            st.session_state[_state_key(variable_key, "summary_excel_bytes")] = _summary_workbook_bytes(
+                uploads,
+                enable_range,
+                enable_hampel,
+                enable_constant,
+                confirmed_qc_assets,
+            )
         if _state_key(variable_key, "summary_excel_bytes") in st.session_state:
             st.download_button("下载 summary_statistics.xlsx", st.session_state[_state_key(variable_key, "summary_excel_bytes")], "summary_statistics.xlsx")
 
