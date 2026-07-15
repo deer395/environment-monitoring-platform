@@ -116,7 +116,7 @@ VARIABLE_REGISTRY = {
         "display_name": "Temperature",
         "display_name_cn": "温度",
         "display_name_en": "Temperature",
-        "unit": "degC",
+        "unit": "℃",
         "source": "excel",
         "default_file": "temp.xls",
         "default_file_name": "temp.xls",

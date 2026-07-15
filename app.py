@@ -2,6 +2,7 @@
 from tempfile import NamedTemporaryFile
 from io import BytesIO
 import hashlib
+import re
 import sys
 
 import pandas as pd
@@ -33,7 +34,9 @@ from src.report_tables import (
     build_summary_workbook_sheets,
 )
 from src.resampling import resample_configured
+from src.report_context import build_report_context
 from src.variable_registry import VARIABLE_REGISTRY, get_variable_metadata, list_enabled_variables
+from src.word_report import generate_single_variable_report
 
 DATA_DIR = PROJECT_ROOT / "data_private"
 DEFAULT_FILES = {
@@ -594,6 +597,54 @@ def _run_after_qc(variable_key, final_qc_data, qc_summary):
     return resampled, anomaly, metrics, basic_row
 
 
+def _safe_report_filename(value):
+    safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", str(value)).strip(" ._")
+    return f"{safe or '当前变量详细报告'}.docx"
+
+
+def _render_single_variable_report_entry(
+    variable_key, uploaded_file, enable_range, enable_hampel, enable_constant,
+    current_context, raw, resampled, anomaly, metrics,
+):
+    """Render the small report entry point after analysis, keeping generation out of app.py."""
+    st.subheader("当前变量详细报告")
+    confirmed, status = _confirmed_asset_status(
+        variable_key, uploaded_file, enable_range, enable_hampel, enable_constant, current_context,
+    )
+    if confirmed is None:
+        st.info("请先完成当前变量的人工确认，再生成详细 Word 报告。")
+        return
+    metadata = get_variable_metadata(variable_key)
+    defaults = {
+        "project": "", "title": f"{metadata.get('display_name_cn', variable_key)}监测数据质控与统计分析报告",
+        "organization": "", "author": "",
+    }
+    c1, c2 = st.columns(2)
+    project_name = c1.text_input("站点名称", value=defaults["project"], key=_state_key(variable_key, "report_project"))
+    report_title = c2.text_input("报告标题", value=defaults["title"], key=_state_key(variable_key, "report_title"))
+    c3, c4 = st.columns(2)
+    organization = c3.text_input("编制部门", value=defaults["organization"], key=_state_key(variable_key, "report_organization"))
+    author = c4.text_input("编制人", value=defaults["author"], key=_state_key(variable_key, "report_author"))
+    report_key = _state_key(variable_key, "word_report_bytes")
+    if st.button("生成当前变量详细报告", key=_state_key(variable_key, "generate_word_report")):
+        try:
+            context = build_report_context(
+                variable_key=variable_key, raw_data=raw,
+                final_qc_data=confirmed["final_qc_data"], final_qc_log=confirmed.get("final_qc_log"),
+                qc_summary=confirmed["qc_summary"], review_table=confirmed.get("review_table"),
+                resampled=resampled, anomaly=anomaly, metrics=metrics,
+                qc_token=current_context["qc_token"], confirmed_qc_token=confirmed.get("qc_token"),
+                project_name=project_name, report_title=report_title, organization=organization, author=author,
+            )
+            st.session_state[report_key] = generate_single_variable_report(context)
+            st.session_state[_state_key(variable_key, "word_report_filename")] = _safe_report_filename(context["project_info"]["report_title"])
+            st.success("当前变量详细 Word 报告已生成。")
+        except Exception as exc:
+            st.error(f"报告生成失败：{exc}")
+    if report_key in st.session_state:
+        st.download_button("下载 Word 报告", st.session_state[report_key], st.session_state.get(_state_key(variable_key, "word_report_filename"), "当前变量详细报告.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
 def main():
     st.set_page_config(page_title="环境监测数据质控与分析工具", layout="wide")
     st.title("环境监测数据质控与分析工具")
@@ -804,6 +855,10 @@ def main():
             "analysis_end": end_ts,
             "qc_token": token,
         }
+        _render_single_variable_report_entry(
+            variable_key, uploads[variable_key], enable_range, enable_hampel, enable_constant,
+            current_context, raw, resampled, anomaly, metrics,
+        )
         confirmed_qc_assets, confirmation_table = _collect_confirmed_qc_assets(
             uploads,
             enable_range,
