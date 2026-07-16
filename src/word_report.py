@@ -205,7 +205,7 @@ def generate_single_variable_report(context):
     name, unit = variable["display_name"], variable["unit"]
 
     doc.add_paragraph(project["report_title"], style="Title").alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for label, value in (("站点名称", project.get("site_name", "")), ("当前变量", f"{name}（{unit}）"), ("监测时间范围", f"{_date(data['start_time'])} 至 {_date(data['end_time'])}"), ("编制部门", project.get("department", "")), ("编制人", project["author"]), ("报告生成日期", _date(software["generated_at"])), ("软件版本", software["software_version"])):
+    for label, value in (("站点名称", project.get("site_name", "")), ("项目名称", project.get("project_name", "")), ("当前变量", f"{name}（{unit}）"), ("监测时间范围", f"{_date(data['start_time'])} 至 {_date(data['end_time'])}"), ("编制部门", project.get("department", "")), ("编制人", project["author"]), ("报告生成日期", _date(software["generated_at"])), ("软件版本", software["software_version"])):
         if value: doc.add_paragraph(f"{label}：{value}")
     doc.add_page_break()
 

@@ -167,6 +167,7 @@ def build_report_context(
     qc_token,
     confirmed_qc_token,
     project_name="",
+    project_title="",
     report_title="",
     organization="",
     author="",
@@ -205,7 +206,7 @@ def build_report_context(
     calendar_days = (end.normalize() - start.normalize()).days + 1 if start is not None and end is not None else None
     actual_days = int(pd.to_datetime(raw.loc[pd.to_numeric(raw.get("value"), errors="coerce").notna(), "datetime"], errors="coerce").dt.normalize().nunique()) if not raw.empty else 0
     return {
-        "project_info": {"site_name": project_name.strip(), "report_title": report_title.strip() or default_title, "department": organization.strip(), "author": author.strip()},
+        "project_info": {"site_name": project_name.strip(), "project_name": project_title.strip(), "report_title": report_title.strip() or default_title, "department": organization.strip(), "author": author.strip()},
         "variable_info": {"variable_key": variable_key, "display_name": metadata.get("display_name_cn", variable_key), "unit": metadata.get("unit", "")},
         "data_summary": {"start_time": start, "end_time": end, "raw_count": raw_count, "raw_missing_count": raw_missing, "duplicate_count": duplicate_count, "median_sampling_interval_minutes": _sampling_interval_minutes(raw), "final_valid_count": final_valid, "final_missing_count": int(len(final) - final_valid), "valid_rate": (final_valid / raw_count * 100) if raw_count else 0.0, "calendar_days": calendar_days, "actual_data_days": actual_days, "date_coverage_rate": (actual_days / calendar_days * 100) if calendar_days else pd.NA},
         "qc_summary": {**dict(qc_summary), "manual_remove_count": manual_removed},

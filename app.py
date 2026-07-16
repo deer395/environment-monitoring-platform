@@ -22,6 +22,7 @@ from src.manual_qc import (
     apply_review_table_decisions,
     build_qc_review_table,
     ensure_record_id,
+    summarize_candidate_decisions,
 )
 from src.metrics import calculate_metrics
 from src.plotting import create_final_qc_figure, create_qc_candidate_figure
@@ -35,6 +36,17 @@ from src.report_tables import (
 )
 from src.resampling import resample_configured
 from src.report_context import build_report_context
+from src.station_task import (
+    build_station_task_status,
+    clear_all_variable_report_caches,
+    clear_station_export_caches,
+    clear_variable_result_caches,
+    default_station_report_title,
+    require_station_export,
+    station_info_signature,
+)
+from src.station_report_context import build_station_report_context
+from src.station_word_report import generate_station_word_report
 from src.variable_registry import VARIABLE_REGISTRY, get_variable_metadata, list_enabled_variables
 from src.word_report import generate_single_variable_report
 
@@ -54,23 +66,23 @@ def _source_signature(variable_key, uploaded_file):
     if uploaded_file is not None:
         digest = hashlib.sha256(uploaded_file.getvalue()).hexdigest()
         return f"upload:{variable_key}:{uploaded_file.name}:{digest}"
-    path = DEFAULT_FILES[variable_key]
-    stat = path.stat()
-    return f"default:{variable_key}:{path}:{stat.st_mtime_ns}:{stat.st_size}"
+    raise ValueError("未提供数据源")
 
 
 def _source_label(variable_key, uploaded_file):
     if uploaded_file is not None:
         return f"上传文件：{uploaded_file.name}"
-    return f"本地默认文件：{DEFAULT_FILES[variable_key]}"
+    return "未提供数据源"
 
 
 def _source_args(variable_key, uploaded_file):
+    if uploaded_file is None:
+        raise ValueError("未提供数据源")
     uploaded = _uploaded_bytes(uploaded_file)
-    suffix = Path(uploaded_file.name).suffix if uploaded_file is not None else DEFAULT_FILES[variable_key].suffix
+    suffix = Path(uploaded_file.name).suffix
     return {
         "source_signature": _source_signature(variable_key, uploaded_file),
-        "source_path": str(DEFAULT_FILES[variable_key]),
+        "source_path": "",
         "uploaded_bytes": uploaded,
         "uploaded_suffix": suffix,
     }
@@ -113,9 +125,13 @@ def _automatic_remove_mask(table):
 
 
 def _save_confirmed_qc_assets(variable_key, source_signature, analysis_start, analysis_end, qc_token):
+    decisions = summarize_candidate_decisions(st.session_state.get(_state_key(variable_key, "review_table")))
+    if decisions["candidate_undecided_count"]:
+        raise ValueError(f"当前仍有{decisions['candidate_undecided_count']}条候选记录未完成人工判定，请先选择删除或保留后再确认最终质控结果。")
     st.session_state[_state_key(variable_key, "confirmed_qc_assets")] = {
         "qc_confirmed": True,
         "final_qc_data": st.session_state.get(_state_key(variable_key, "final_qc_data")),
+        "raw_data": st.session_state.get(_state_key(variable_key, "raw_data")),
         "final_qc_log": st.session_state.get(_state_key(variable_key, "final_qc_log")),
         "qc_summary": st.session_state.get(_state_key(variable_key, "qc_summary")),
         "review_table": st.session_state.get(_state_key(variable_key, "review_table")),
@@ -126,21 +142,25 @@ def _save_confirmed_qc_assets(variable_key, source_signature, analysis_start, an
     }
     st.session_state[_state_key(variable_key, "qc_confirmed")] = True
     st.session_state.pop(_state_key(variable_key, "confirmation_invalid_reason"), None)
+    clear_variable_result_caches(st.session_state, variable_key)
 
 
 def _confirmed_asset_status(variable_key, upload, enable_range, enable_hampel, enable_constant, current_context=None):
     def invalidate(reason):
         st.session_state[_state_key(variable_key, "qc_confirmed")] = False
         st.session_state[_state_key(variable_key, "confirmation_invalid_reason")] = reason
+        clear_variable_result_caches(st.session_state, variable_key)
         return None, reason
 
     asset = st.session_state.get(_state_key(variable_key, "confirmed_qc_assets"))
     if not asset:
         return None, "仅自动质控"
+    if summarize_candidate_decisions(asset.get("review_table"))["candidate_undecided_count"]:
+        return invalidate("存在未完成判定的候选记录，需重新确认")
     try:
         source_signature = _source_args(variable_key, upload)["source_signature"]
-    except FileNotFoundError:
-        return invalidate("未加载")
+    except (FileNotFoundError, ValueError):
+        return invalidate("未提供")
     if asset.get("source_signature") != source_signature:
         return invalidate("数据源已变化，需重新确认")
     analysis_start = asset.get("analysis_start")
@@ -159,22 +179,13 @@ def _confirmed_asset_status(variable_key, upload, enable_range, enable_hampel, e
 
 
 def _collect_confirmed_qc_assets(uploads, enable_range, enable_hampel, enable_constant, current_context=None):
-    assets, rows = {}, []
+    assets, statuses = {}, {}
     for variable_key, upload in uploads.items():
-        metadata = get_variable_metadata(variable_key)
         asset, status = _confirmed_asset_status(variable_key, upload, enable_range, enable_hampel, enable_constant, current_context)
         if asset is not None:
             assets[variable_key] = asset
-        saved = st.session_state.get(_state_key(variable_key, "confirmed_qc_assets"), {})
-        rows.append({
-            "variable_key": variable_key,
-            "中文名称": metadata.get("display_name_cn", variable_key),
-            "数据源状态": "已加载" if asset is not None else ("未加载" if status == "未加载" else "数据源可用"),
-            "人工确认状态": status,
-            "确认时间范围": f"{saved.get('analysis_start')} 至 {saved.get('analysis_end')}" if saved.get("analysis_start") is not None else "",
-            "当前结果是否有效": "是" if asset is not None else "否",
-        })
-    return assets, pd.DataFrame(rows)
+        statuses[variable_key] = status
+    return assets, statuses
 
 
 @st.cache_data(show_spinner=False)
@@ -339,6 +350,7 @@ def _set_selected_decision(decision):
     if table is not None:
         st.session_state[_current_state_key("review_table")] = _apply_selected_decision(table, ids, decision)
         st.session_state[_current_state_key("qc_confirmed")] = False
+        clear_variable_result_caches(st.session_state, st.session_state.get("current_variable_key", ""))
 
 
 def _clear_selection():
@@ -350,6 +362,7 @@ def _set_range_decision(start_ts, end_ts, decision):
     if table is not None:
         st.session_state[_current_state_key("review_table")] = _apply_range_decision(table, start_ts, end_ts, decision)
         st.session_state[_current_state_key("qc_confirmed")] = False
+        clear_variable_result_caches(st.session_state, st.session_state.get("current_variable_key", ""))
 
 
 def _excel_bytes(sheets):
@@ -361,80 +374,34 @@ def _excel_bytes(sheets):
     return output.getvalue()
 
 
-def _summary_workbook_bytes(uploads, enable_range, enable_hampel, enable_constant, confirmed_qc_assets):
+def _summary_workbook_bytes(variable_keys, confirmed_qc_assets, progress):
+    """Build the formal station workbook from confirmed final-QC assets only."""
+    require_station_export(progress, confirmed_qc_assets, variable_keys)
     all_rows, all_qc, all_metrics, all_logs = [], {}, {}, []
     processing_rows = []
-    for key, upload in uploads.items():
+    for key in variable_keys:
         metadata = get_variable_metadata(key)
-        source = _source_label(key, upload) if upload is not None or DEFAULT_FILES[key].exists() else "未提供数据源"
+        confirmed = confirmed_qc_assets[key]
+        final_qc = confirmed["final_qc_data"]
+        qc_summary = confirmed["qc_summary"]
+        final_log = confirmed.get("final_qc_log")
         status = {
             "variable_key": key,
             "display_name_cn": metadata.get("display_name_cn", key),
-            "data_source": source,
-            "start_time": pd.NaT,
-            "end_time": pd.NaT,
-            "auto_qc_completed": False,
-            "manual_qc_confirmed": False,
-            "processing_status": "skipped",
-            "note": "",
+            "data_source": "用户上传文件",
+            "start_time": final_qc["datetime"].min(),
+            "end_time": final_qc["datetime"].max(),
+            "auto_qc_completed": True,
+            "manual_qc_confirmed": True,
+            "processing_status": "processed",
+            "note": "使用该变量已人工确认的 final_qc_data",
         }
-        try:
-            if upload is None and not DEFAULT_FILES[key].exists():
-                status["note"] = "未上传且默认文件不存在"
-                processing_rows.append(status)
-                continue
-            args = _source_args(key, upload)
-            loaded = _cached_load_excel(
-                key,
-                args["source_signature"],
-                args["source_path"],
-                args["uploaded_bytes"],
-                args["uploaded_suffix"],
-            )
-            if loaded.empty:
-                status["note"] = "数据源没有可读取记录"
-                processing_rows.append(status)
-                continue
-            confirmed = confirmed_qc_assets.get(key)
-            if confirmed is not None:
-                raw = loaded[
-                    (loaded["datetime"] >= pd.Timestamp(confirmed["analysis_start"]))
-                    & (loaded["datetime"] <= pd.Timestamp(confirmed["analysis_end"]))
-                ].reset_index(drop=True)
-                qc_summary = confirmed["qc_summary"]
-                final_qc = confirmed["final_qc_data"]
-                final_log = confirmed.get("final_qc_log")
-                status["manual_qc_confirmed"] = True
-                status["note"] = "使用该变量已人工确认的 final_qc_data"
-            else:
-                raw = loaded
-                auto_qc, qc_summary, qc_log = apply_quality_control(
-                    raw,
-                    metadata,
-                    enable_intraday_2std=False,
-                    enable_valid_range=enable_range,
-                    enable_hampel=enable_hampel,
-                    enable_constant_value=enable_constant,
-                )
-                final_qc, final_log = apply_manual_qc_decisions(raw, auto_qc, qc_log)
-                status["note"] = "仅完成自动质控，未进行人工确认（含 sensor_zero 规则）"
-            if raw.empty or final_qc.empty:
-                status["note"] = "当前分析范围内没有数据"
-                processing_rows.append(status)
-                continue
-            status["start_time"] = final_qc["datetime"].min()
-            status["end_time"] = final_qc["datetime"].max()
-            status["auto_qc_completed"] = True
-            status["processing_status"] = "processed"
-            resampled, anomaly, metrics, row = _run_after_qc(key, final_qc, qc_summary)
-            all_rows.append(row)
-            all_qc[key] = qc_summary
-            all_metrics[key] = metrics
-            if final_log is not None:
-                all_logs.append(final_log)
-        except Exception as exc:
-            status["processing_status"] = "skipped"
-            status["note"] = f"处理失败：{exc}"
+        resampled, anomaly, metrics, row = _run_after_qc(key, final_qc, qc_summary)
+        all_rows.append(row)
+        all_qc[key] = qc_summary
+        all_metrics[key] = metrics
+        if final_log is not None:
+            all_logs.append(final_log)
         processing_rows.append(status)
     combined_log = pd.concat(all_logs, ignore_index=True) if all_logs else None
     sheets = build_summary_workbook_sheets(
@@ -503,6 +470,7 @@ COLUMN_LABELS = {
 
 def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
     user_removed = review_table["user_decision"].isin(["remove", "manual_remove"]) & ~_automatic_remove_mask(review_table)
+    candidate = summarize_candidate_decisions(review_table)
     return {
         "原始缺测数": int(qc_summary["missing_before_qc"]),
         "传感器 0 值自动删除数": int(qc_summary.get("removed_by_sensor_zero", 0)),
@@ -512,6 +480,7 @@ def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
         "人工删除数": int(user_removed.sum()),
         "最终缺测数": int(final_qc_data["value"].isna().sum()),
         "最终有效记录数": int(final_qc_data["value"].notna().sum()),
+        "唯一候选记录数": candidate["unique_candidate_count"], "候选删除数": candidate["candidate_removed_count"], "候选保留数": candidate["candidate_kept_count"], "候选未决定数": candidate["candidate_undecided_count"], "人工补充删除数": candidate["manual_extra_removed_count"],
     }
 
 
@@ -602,9 +571,112 @@ def _safe_report_filename(value):
     return f"{safe or '当前变量详细报告'}.docx"
 
 
+def _refresh_station_report_title():
+    """Keep the composite title automatic until the user edits it."""
+    title_key = "station_task:report_title"
+    old_auto = st.session_state.get("station_task:last_auto_title", "")
+    new_auto = default_station_report_title(st.session_state.get("station_task:site_name", ""))
+    if not st.session_state.get(title_key) or st.session_state.get(title_key) == old_auto:
+        st.session_state[title_key] = new_auto
+    st.session_state["station_task:last_auto_title"] = new_auto
+
+
+def _render_station_task_info(variable_keys):
+    st.header("站点任务信息")
+    if "station_task:report_title" not in st.session_state:
+        _refresh_station_report_title()
+    c1, c2 = st.columns(2)
+    site_name = c1.text_input("站点名称 *", key="station_task:site_name", on_change=_refresh_station_report_title)
+    project_name = c2.text_input("项目名称", key="station_task:project_name")
+    c3, c4 = st.columns(2)
+    department = c3.text_input("编制部门", key="station_task:department")
+    author = c4.text_input("编制人", key="station_task:author")
+    report_title = st.text_input("站点综合报告标题", key="station_task:report_title")
+    info = {
+        "site_name": site_name,
+        "project_name": project_name,
+        "department": department,
+        "author": author,
+        "report_title": report_title,
+    }
+    signature = station_info_signature(info)
+    previous = st.session_state.get("station_task:info_signature")
+    if previous is not None and previous != signature:
+        clear_all_variable_report_caches(st.session_state, variable_keys)
+        clear_station_export_caches(st.session_state)
+    st.session_state["station_task:info_signature"] = signature
+    return info
+
+
+def _station_source_states(uploads):
+    """Probe actual uploaded files for the status table; never use defaults."""
+    states = {}
+    for variable_key, upload in uploads.items():
+        if upload is None:
+            states[variable_key] = {"provided": False}
+            continue
+        try:
+            args = _source_args(variable_key, upload)
+            raw = _cached_load_excel(
+                variable_key, args["source_signature"], args["source_path"],
+                args["uploaded_bytes"], args["uploaded_suffix"],
+            )
+            states[variable_key] = {
+                "provided": True,
+                "read_success": True,
+                "start_time": raw["datetime"].min() if not raw.empty else None,
+                "end_time": raw["datetime"].max() if not raw.empty else None,
+                "raw_count": len(raw),
+            }
+        except Exception as exc:
+            states[variable_key] = {"provided": True, "read_error": str(exc)}
+    return states
+
+
+def _render_station_task_completion(variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context=None):
+    confirmed_assets, confirmation_statuses = _collect_confirmed_qc_assets(
+        uploads, enable_range, enable_hampel, enable_constant, current_context,
+    )
+    source_states = _station_source_states(uploads)
+    for variable_key, source in source_states.items():
+        if source.get("read_success") and variable_key not in confirmed_assets and _state_key(variable_key, "auto_qc_data") not in st.session_state:
+            confirmation_statuses[variable_key] = "未处理"
+    table, progress = build_station_task_status(
+        variable_keys,
+        {key: get_variable_metadata(key) for key in variable_keys},
+        source_states,
+        confirmed_assets,
+        confirmation_statuses,
+        station_info,
+    )
+    st.subheader("站点任务完成状态")
+    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.write(f"已上传变量数：{progress['已上传变量数']} / {progress['变量总数']}；已确认变量数：{progress['已确认变量数']}；可导出变量数：{progress['可导出变量数']}")
+    if progress["阻断项"]:
+        st.warning("站点综合导出阻断项：\n\n- " + "\n- ".join(progress["阻断项"]))
+    else:
+        st.success("九个变量均已人工确认，站点综合 Excel 将全部使用 final_qc_data。")
+    st.subheader("站点综合导出")
+    export_key = "station_task:summary_excel_bytes"
+    if st.button("生成站点综合 Excel", disabled=not progress["可生成站点综合 Excel"]):
+        st.session_state[export_key] = _summary_workbook_bytes(variable_keys, confirmed_assets, progress)
+    if export_key in st.session_state and progress["可生成站点综合 Excel"]:
+        st.download_button("下载 summary_statistics.xlsx", st.session_state[export_key], "summary_statistics.xlsx")
+    word_key = "station_task:station_word_report_bytes"
+    if st.button("生成站点综合 Word", disabled=not progress["可生成站点综合 Excel"]):
+        try:
+            context = build_station_report_context(variable_keys, confirmed_assets, progress, station_info)
+            st.session_state[word_key] = generate_station_word_report(context)
+            st.session_state["station_task:station_word_report_filename"] = _safe_report_filename(station_info.get("report_title", "站点环境监测综合报告"))
+        except Exception as exc:
+            st.error(f"站点综合 Word 生成失败：{exc}")
+    if word_key in st.session_state and progress["可生成站点综合 Excel"]:
+        st.download_button("下载站点综合 Word", st.session_state[word_key], st.session_state.get("station_task:station_word_report_filename", "站点环境监测综合报告.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
 def _render_single_variable_report_entry(
     variable_key, uploaded_file, enable_range, enable_hampel, enable_constant,
-    current_context, raw, resampled, anomaly, metrics,
+    current_context, raw, resampled, anomaly, metrics, station_info,
 ):
     """Render the small report entry point after analysis, keeping generation out of app.py."""
     st.subheader("当前变量详细报告")
@@ -615,16 +687,7 @@ def _render_single_variable_report_entry(
         st.info("请先完成当前变量的人工确认，再生成详细 Word 报告。")
         return
     metadata = get_variable_metadata(variable_key)
-    defaults = {
-        "project": "", "title": f"{metadata.get('display_name_cn', variable_key)}监测数据质控与统计分析报告",
-        "organization": "", "author": "",
-    }
-    c1, c2 = st.columns(2)
-    project_name = c1.text_input("站点名称", value=defaults["project"], key=_state_key(variable_key, "report_project"))
-    report_title = c2.text_input("报告标题", value=defaults["title"], key=_state_key(variable_key, "report_title"))
-    c3, c4 = st.columns(2)
-    organization = c3.text_input("编制部门", value=defaults["organization"], key=_state_key(variable_key, "report_organization"))
-    author = c4.text_input("编制人", value=defaults["author"], key=_state_key(variable_key, "report_author"))
+    report_title = f"{station_info.get('site_name', '').strip()} {metadata.get('display_name_cn', variable_key)}监测数据质控与统计分析报告".strip()
     report_key = _state_key(variable_key, "word_report_bytes")
     if st.button("生成当前变量详细报告", key=_state_key(variable_key, "generate_word_report")):
         try:
@@ -634,7 +697,8 @@ def _render_single_variable_report_entry(
                 qc_summary=confirmed["qc_summary"], review_table=confirmed.get("review_table"),
                 resampled=resampled, anomaly=anomaly, metrics=metrics,
                 qc_token=current_context["qc_token"], confirmed_qc_token=confirmed.get("qc_token"),
-                project_name=project_name, report_title=report_title, organization=organization, author=author,
+                project_name=station_info.get("site_name", ""), project_title=station_info.get("project_name", ""),
+                report_title=report_title, organization=station_info.get("department", ""), author=station_info.get("author", ""),
             )
             st.session_state[report_key] = generate_single_variable_report(context)
             st.session_state[_state_key(variable_key, "word_report_filename")] = _safe_report_filename(context["project_info"]["report_title"])
@@ -648,10 +712,12 @@ def _render_single_variable_report_entry(
 def main():
     st.set_page_config(page_title="环境监测数据质控与分析工具", layout="wide")
     st.title("环境监测数据质控与分析工具")
-    st.caption("当前版本：V3 通用多变量版")
+    st.caption("当前开发版本：V4.2 站点任务版")
     st.caption("自动规则先处理；算法候选和人工质控在同一复核区完成。后续分析只使用 final_qc_data。")
 
     variable_keys = list(list_enabled_variables())
+    station_info = _render_station_task_info(variable_keys)
+    st.header("九变量上传")
     uploads = {}
     for key in variable_keys:
         metadata = get_variable_metadata(key)
@@ -664,6 +730,13 @@ def main():
     enable_constant = st.sidebar.checkbox("启用连续恒定值标记（仅标记）", value=True)
 
     uploaded = uploads.get(variable_key)
+    st.header("当前变量质控与分析")
+    if uploaded is None:
+        st.info("当前变量未提供上传文件，不会读取本地默认测试数据。")
+        _render_station_task_completion(
+            variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info,
+        )
+        return
     source_args = _source_args(variable_key, uploaded)
     st.info(f"当前数据源：{_source_label(variable_key, uploaded)}")
 
@@ -674,6 +747,9 @@ def main():
         date_range = st.sidebar.date_input("分析时间范围", value=(min_date, max_date), min_value=min_date, max_value=max_date)
         if len(date_range) != 2:
             st.warning("请选择完整的开始和结束日期。")
+            _render_station_task_completion(
+                variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info,
+            )
             return
 
         start_ts = pd.Timestamp(date_range[0])
@@ -687,6 +763,12 @@ def main():
             enable_hampel,
             enable_constant,
         )
+        current_context = {
+            "variable_key": variable_key,
+            "analysis_start": start_ts,
+            "analysis_end": end_ts,
+            "qc_token": token,
+        }
         if st.session_state.get(_state_key(variable_key, "qc_token")) != token:
             if st.session_state.get(_state_key(variable_key, "confirmed_qc_assets")):
                 st.session_state[_state_key(variable_key, "confirmation_invalid_reason")] = "自动质控规则、数据源或时间范围已变化，请重新确认该变量。"
@@ -696,10 +778,14 @@ def main():
             st.session_state[_state_key(variable_key, "selected_record_ids")] = []
             st.session_state.pop(_state_key(variable_key, "qc_log_excel_bytes"), None)
             st.session_state.pop(_state_key(variable_key, "summary_excel_bytes"), None)
+            clear_variable_result_caches(st.session_state, variable_key)
 
         raw, auto_qc_data, qc_summary, qc_log, initial_review_table = _get_auto_qc_assets(variable_key, source_args, start_ts, end_ts, enable_range, enable_hampel, enable_constant)
         if raw.empty:
             st.warning("当前时间范围内没有数据。")
+            _render_station_task_completion(
+                variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
+            )
             return
 
         st.session_state[_state_key(variable_key, "raw_data")] = raw
@@ -723,15 +809,19 @@ def main():
         if c1.button("全部 Hampel 删除"):
             review_table = _apply_batch_decision(review_table, "hampel", "remove")
             st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+            clear_variable_result_caches(st.session_state, variable_key)
         if c2.button("全部 Hampel 保留"):
             review_table = _apply_batch_decision(review_table, "hampel", "keep")
             st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+            clear_variable_result_caches(st.session_state, variable_key)
         if c3.button("全部恒定值删除"):
             review_table = _apply_batch_decision(review_table, "constant_value", "remove")
             st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+            clear_variable_result_caches(st.session_state, variable_key)
         if c4.button("全部恒定值保留"):
             review_table = _apply_batch_decision(review_table, "constant_value", "keep")
             st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+            clear_variable_result_caches(st.session_state, variable_key)
         st.session_state[_state_key(variable_key, "review_table")] = review_table
 
         final_qc_data, final_qc_log = apply_review_table_decisions(raw, auto_qc_data, qc_log, review_table)
@@ -756,6 +846,9 @@ def main():
         check_end = pd.Timestamp.combine(check_end_date, check_end_time)
         if check_start > check_end:
             st.warning("人工检查开始时间不能晚于结束时间。")
+            _render_station_task_completion(
+                variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
+            )
             return
         b1, b2 = st.columns(2)
         b1.button("当前时间范围全部删除", on_click=_set_range_decision, args=(check_start, check_end, "manual_remove"))
@@ -809,6 +902,7 @@ def main():
         if _range_decisions_changed(range_table, edited_range):
             st.session_state[_state_key(variable_key, "review_table")] = _update_review_table(review_table, edited_range)
             st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+            clear_variable_result_caches(st.session_state, variable_key)
             st.rerun()
 
         st.subheader("最终质控日志")
@@ -823,9 +917,15 @@ def main():
             st.download_button("下载 QC 日志 Excel", st.session_state[_state_key(variable_key, "qc_log_excel_bytes")], "final_qc_log.xlsx")
 
         if st.button("确认最终质控结果"):
-            _save_confirmed_qc_assets(variable_key, source_args["source_signature"], start_ts, end_ts, token)
+            try:
+                _save_confirmed_qc_assets(variable_key, source_args["source_signature"], start_ts, end_ts, token)
+            except ValueError as exc:
+                st.warning(str(exc))
         if not st.session_state.get(_state_key(variable_key, "qc_confirmed"), False):
             st.info("请先确认最终质控结果，再进入重采样、统计、绘图和导出。")
+            _render_station_task_completion(
+                variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
+            )
             return
 
         st.header("分析结果")
@@ -849,47 +949,21 @@ def main():
         if pd.notna(metrics.get("max_daily_range")):
             st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
 
-        current_context = {
-            "variable_key": variable_key,
-            "analysis_start": start_ts,
-            "analysis_end": end_ts,
-            "qc_token": token,
-        }
         _render_single_variable_report_entry(
             variable_key, uploads[variable_key], enable_range, enable_hampel, enable_constant,
-            current_context, raw, resampled, anomaly, metrics,
+            current_context, raw, resampled, anomaly, metrics, station_info,
         )
-        confirmed_qc_assets, confirmation_table = _collect_confirmed_qc_assets(
-            uploads,
-            enable_range,
-            enable_hampel,
-            enable_constant,
-            current_context,
+        _render_station_task_completion(
+            variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
         )
-        st.subheader("综合导出确认状态")
-        st.dataframe(confirmation_table, use_container_width=True, hide_index=True)
-        confirmed_names = confirmation_table.loc[confirmation_table["人工确认状态"].eq("已人工确认"), "中文名称"].tolist()
-        automatic_names = confirmation_table.loc[confirmation_table["人工确认状态"].eq("仅自动质控"), "中文名称"].tolist()
-        unloaded_names = confirmation_table.loc[confirmation_table["人工确认状态"].eq("未加载"), "中文名称"].tolist()
-        if confirmed_names and not automatic_names and not unloaded_names:
-            st.success("所有已加载变量均已完成人工确认，综合工作簿将使用各变量的 final_qc_data。")
-        else:
-            st.info("综合工作簿将对已确认变量使用 final_qc_data，对未确认变量仅使用自动质控结果。")
         if st.session_state.get(_state_key(variable_key, "confirmation_invalid_reason")):
             st.warning(st.session_state[_state_key(variable_key, "confirmation_invalid_reason")])
-        if st.button("生成完整 summary_statistics.xlsx"):
-            st.session_state[_state_key(variable_key, "summary_excel_bytes")] = _summary_workbook_bytes(
-                uploads,
-                enable_range,
-                enable_hampel,
-                enable_constant,
-                confirmed_qc_assets,
-            )
-        if _state_key(variable_key, "summary_excel_bytes") in st.session_state:
-            st.download_button("下载 summary_statistics.xlsx", st.session_state[_state_key(variable_key, "summary_excel_bytes")], "summary_statistics.xlsx")
 
     except Exception as exc:
         st.error(f"处理失败：{exc}")
+        _render_station_task_completion(
+            variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info,
+        )
 
 
 if __name__ == "__main__":

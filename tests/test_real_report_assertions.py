@@ -91,6 +91,6 @@ def test_final_four_variable_monthly_and_conclusion_closure():
     assert "2026年5月至2026年6月回升" in cod
 
     _, salinity = _real_report("salinity", "盐度.xls")
-    assert "短暂回升至30.48 PSU" in salinity
-    assert "阶段性回落至29.72 PSU" in salinity
+    assert "短暂回升至30.48 psu" in salinity
+    assert "阶段性回落至29.72 psu" in salinity
     assert "变化至" not in salinity

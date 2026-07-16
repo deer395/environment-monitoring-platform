@@ -22,6 +22,18 @@ ALGORITHM_RULES = {"hampel", "constant_value"}
 REVIEW_DECISIONS = ["undecided", "keep", "remove", "manual_remove", "manual_keep"]
 
 
+def summarize_candidate_decisions(review_table):
+    """Summarize unique algorithm candidates and their actual user decisions."""
+    empty = {"unique_candidate_count": 0, "candidate_removed_count": 0, "candidate_kept_count": 0, "candidate_undecided_count": 0, "manual_extra_removed_count": 0, "hampel_candidate_count": 0, "constant_candidate_count": 0}
+    if review_table is None or review_table.empty: return empty
+    table = review_table.copy(); flags = table.get("algorithm_flag", pd.Series("", index=table.index)).fillna("").astype(str)
+    empty["hampel_candidate_count"] = int(flags.str.contains("hampel").sum()); empty["constant_candidate_count"] = int(flags.str.contains("constant_value").sum())
+    candidates = table[flags.ne("")].drop_duplicates("record_id", keep="last").copy(); decisions = candidates.get("user_decision", pd.Series("undecided", index=candidates.index)).fillna("undecided")
+    empty["unique_candidate_count"] = len(candidates); empty["candidate_removed_count"] = int(decisions.isin(["remove", "manual_remove"]).sum()); empty["candidate_kept_count"] = int(decisions.isin(["keep", "manual_keep"]).sum()); empty["candidate_undecided_count"] = int((~decisions.isin(["remove", "manual_remove", "keep", "manual_keep"])).sum())
+    non_candidate = table[flags.eq("")]; empty["manual_extra_removed_count"] = int(non_candidate.get("user_decision", pd.Series("", index=non_candidate.index)).isin(["manual_remove"]).sum())
+    return empty
+
+
 def _empty_log():
     return pd.DataFrame(columns=LOG_COLUMNS)
 
