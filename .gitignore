@@ -10,3 +10,11 @@ __pycache__/
 ~$*
 *.docx
 测试输出/
+.pytest-tmp/
+evaluation_input_private/
+evaluation/monthly/sample_manifest.csv
+evaluation/monthly/annotation_template.xlsx
+evaluation/monthly/baseline_predictions.json
+evaluation/monthly/baseline_review.xlsx
+evaluation/monthly/figures/
+evaluation/monthly/results/
