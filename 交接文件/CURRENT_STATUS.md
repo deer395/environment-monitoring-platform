@@ -1,5 +1,12 @@
 # CURRENT_STATUS
 
+## 当前状态：V4.2 旧月际算法为稳定正式实现（2026-07-18）
+
+- V4.2 正式月际算法继续作为当前稳定实现，后续正式开发基于 `feature/v4.2-stable-continuation`。
+- 月际质量评估已完成：27 个样本中未发现主要趋势或核心事实重大错误；主要不足是部分文字过度拆分。
+- 月际叙述压缩实验保留在 `feature/monthly-narrative-compression`，暂不合并到正式路线。
+- 报告导出前继续保留人工快速审阅；评估工具可用于复核，但不改变正式算法。
+
 ## 当前状态：月际报告质量评估 baseline 已完成，等待冻结
 
 - 基线：V4.2 冻结提交 `abdff0bc249a4707949515ab614afc707be4fcd9`，标签 `v4.2-station-report-complete`。

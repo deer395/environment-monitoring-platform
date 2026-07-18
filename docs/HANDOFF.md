@@ -1,5 +1,11 @@
 # V4.2 站点任务与综合报告交接
 
+## 当前接手指引（2026-07-18，优先于下文历史阶段说明）
+
+- 后续任务从 `feature/v4.2-stable-continuation` 开展，正式月际文字继续使用 V4.2 旧算法。
+- 不要默认继续开发月际叙述压缩算法，也不要合并 `feature/monthly-narrative-compression`。
+- 评估工具可继续用于质量复核；报告导出前保留人工快速审阅。
+
 ## 当前阶段：月际报告质量评估 baseline
 
 - V4.2 冻结基线：`abdff0bc249a4707949515ab614afc707be4fcd9` / `v4.2-station-report-complete`。
