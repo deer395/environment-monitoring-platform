@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from docx import Document
 from docx.enum.section import WD_SECTION
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -124,8 +125,57 @@ def _monthly_figure(monthly, name, unit):
     ax.set_ylabel(f"{name} ({unit})"); ax.set_xlabel("年月"); ax.grid(True, alpha=.3); ax.tick_params(axis="x", rotation=30); return _figure(fig)
 
 
+def _set_table_run_fonts(run, bold=False, size=9):
+    """Apply the report's bilingual font mapping to a table run."""
+    run.font.name = "Times New Roman"
+    fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+    for name, value in (("eastAsia", "宋体"), ("ascii", "Times New Roman"), ("hAnsi", "Times New Roman"), ("cs", "Times New Roman")):
+        fonts.set(qn(f"w:{name}"), value)
+    run.bold = bold
+    run.font.size = Pt(size)
+
+
+def format_table_cell(
+    cell,
+    *,
+    bold=False,
+    font_size=9,
+    horizontal_center=True,
+    vertical_center=True,
+):
+    """Make a table cell independent from the Normal paragraph style.
+
+    Station reports intentionally give Normal paragraphs a first-line indent.
+    Every table paragraph must explicitly override that setting; centering alone
+    does not prevent the inherited indent from shifting or clipping its text.
+    """
+    if vertical_center:
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    for paragraph in cell.paragraphs:
+        # Tables never use tabs for layout.  Remove any accidental layout
+        # whitespace while retaining ordinary spaces within a value or date.
+        cleaned = paragraph.text.replace("\t", "").strip(" \t\u3000")
+        if cleaned != paragraph.text:
+            paragraph.clear()
+            paragraph.add_run(cleaned)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if horizontal_center else WD_ALIGN_PARAGRAPH.LEFT
+        paragraph_format = paragraph.paragraph_format
+        paragraph_format.first_line_indent = Pt(0)
+        paragraph_format.left_indent = Pt(0)
+        paragraph_format.right_indent = Pt(0)
+        paragraph_format.space_before = Pt(0)
+        paragraph_format.space_after = Pt(0)
+        paragraph_format.line_spacing = 1
+        paragraph_format.tab_stops.clear_all()
+        for run in paragraph.runs:
+            _set_table_run_fonts(run, bold=bold, size=font_size)
+
+
 def _set_cell_text(cell, text, bold=False):
-    cell.text = str(text); run = cell.paragraphs[0].runs[0]; run.bold = bold; run.font.size = Pt(9)
+    # Strip only leading/trailing layout whitespace.  Internal spaces, such as
+    # those in dates and value/unit pairs, remain part of the report content.
+    cell.text = str(text).replace("\t", "").strip(" \t\u3000")
+    format_table_cell(cell, bold=bold)
 
 
 def _table(document, title, headers, rows):
