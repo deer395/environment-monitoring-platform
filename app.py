@@ -60,138 +60,236 @@ DEFAULT_FILES = {
 
 
 def _inject_visual_styles():
-    """Apply the Phase 1 visual system without changing application behaviour."""
+    """Phase 3.4: restrained government / research / SaaS professional visual system."""
     st.markdown(
         """
         <style>
-        /* V5 Phase 1: restrained government / research / SaaS visual system. */
+        /* === Design Tokens === */
         :root {
-            --app-navy: #123d63;
-            --app-blue: #1f5f8b;
-            --app-blue-soft: #eef5f9;
-            --app-border: #d8e1e8;
-            --app-muted: #5f6f7e;
+            --app-navy: #1a3650;
+            --app-blue: #2c5f8a;
+            --app-blue-soft: #edf3f8;
+            --app-border: #d0d7de;
+            --app-muted: #59636e;
             --app-surface: #ffffff;
-            --app-success: #2f7d52;
-            --app-warning: #a66a00;
-            --app-danger: #a83d3d;
+            --app-bg: #f5f6f8;
+            --app-success: #2d6a4f;
+            --app-warning: #8b6d1a;
+            --app-danger: #9a3b3b;
+            --app-radius: 5px;
         }
 
+        /* === Page Background === */
         .stApp {
-            background: #f6f8fa;
+            background: var(--app-bg);
             color: #1e2c38;
         }
         .block-container {
             max-width: 1440px;
-            padding-top: 2rem;
-            padding-bottom: 3rem;
+            padding-top: 1.5rem;
+            padding-bottom: 2.5rem;
         }
-        h1, h2, h3 {
-            color: var(--app-navy);
-            letter-spacing: 0;
-        }
+
+        /* === Typography: restrained heading hierarchy === */
+        h1 { font-size: 1.55rem; font-weight: 700; color: var(--app-navy); margin: 0 0 0.5rem 0; letter-spacing: 0; }
         h2 {
-            margin-top: 2rem;
-            padding-bottom: 0.55rem;
-            border-bottom: 1px solid var(--app-border);
+            font-size: 1.15rem; font-weight: 700; color: var(--app-navy);
+            margin: 1.2rem 0 0.4rem 0; padding-bottom: 0.35rem;
+            border-bottom: 1px solid var(--app-border); letter-spacing: 0;
         }
         h3 {
-            margin-top: 1.35rem;
-            font-size: 1.1rem;
+            font-size: 1rem; font-weight: 600; color: var(--app-navy);
+            margin: 0.8rem 0 0.25rem 0; letter-spacing: 0;
         }
+        h4 { font-size: 0.9rem; font-weight: 600; color: var(--app-navy); margin: 0.5rem 0 0.2rem 0; }
+
+        /* === Hero banner: compact professional header === */
         .app-hero {
             background: var(--app-surface);
             border: 1px solid var(--app-border);
-            border-left: 5px solid var(--app-navy);
-            border-radius: 10px;
-            padding: 1.4rem 1.6rem;
-            margin: 0 0 1.5rem 0;
-            box-shadow: 0 2px 8px rgba(18, 61, 99, 0.05);
+            border-left: 4px solid var(--app-navy);
+            border-radius: var(--app-radius);
+            padding: 1rem 1.25rem;
+            margin: 0 0 1.25rem 0;
         }
         .app-hero__eyebrow {
-            color: var(--app-blue);
-            font-size: 0.78rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            margin-bottom: 0.35rem;
+            color: var(--app-blue); font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.06em; margin-bottom: 0.2rem; text-transform: uppercase;
         }
-        .app-hero h1 {
-            margin: 0;
-            font-size: 2rem;
-            line-height: 1.25;
-        }
-        .app-hero__subtitle {
-            color: #425466;
-            font-size: 1rem;
-            margin: 0.55rem 0 1rem 0;
-        }
+        .app-hero h1 { margin: 0; font-size: 1.55rem; line-height: 1.2; border-bottom: none; }
+        .app-hero__subtitle { color: #425466; font-size: 0.88rem; margin: 0.3rem 0 0.6rem 0; }
         .app-hero__meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.65rem;
-            align-items: center;
-            color: var(--app-muted);
-            font-size: 0.86rem;
+            display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+            color: var(--app-muted); font-size: 0.8rem;
         }
         .app-hero__task {
-            background: var(--app-blue-soft);
-            color: var(--app-navy);
-            border-radius: 4px;
-            padding: 0.32rem 0.55rem;
-            font-weight: 600;
+            background: var(--app-blue-soft); color: var(--app-navy);
+            border-radius: 3px; padding: 0.22rem 0.5rem; font-weight: 600; font-size: 0.8rem;
         }
+
+        /* === Cards & containers: flat, restrained, minimal shadow === */
         div[data-testid="stVerticalBlockBorderWrapper"] {
-            border-color: var(--app-border);
-            border-radius: 9px;
+            border: 1px solid var(--app-border);
+            border-radius: var(--app-radius);
             background: var(--app-surface);
-            box-shadow: 0 1px 3px rgba(18, 61, 99, 0.035);
-            padding: 0.25rem 0.45rem;
+            box-shadow: none;
+            padding: 0.5rem 0.75rem;
         }
+        div[data-testid="stExpander"] {
+            border: 1px solid var(--app-border);
+            border-radius: var(--app-radius);
+            background: var(--app-surface);
+        }
+        div[data-testid="stExpander"] details summary {
+            font-size: 0.88rem; font-weight: 600; color: var(--app-navy);
+            padding: 0.4rem 0.6rem;
+        }
+
+        /* === Alerts: compact, restrained === */
+        div[data-testid="stAlert"] {
+            border-radius: var(--app-radius);
+            border-width: 1px;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.85rem;
+            margin-bottom: 0.35rem;
+        }
+        div[data-testid="stAlert"] p { margin: 0; line-height: 1.35; }
+        div[data-testid="stNotification"] .stMarkdown { margin: 0; }
+
+        /* === Metrics: compact numeric display === */
+        div[data-testid="stMetric"] {
+            background: transparent;
+        }
+        div[data-testid="stMetric"] label {
+            font-size: 0.78rem; color: var(--app-muted); font-weight: 500;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+            font-size: 1.25rem; font-weight: 700; color: var(--app-navy);
+        }
+
+        /* === Progress bar: restrained === */
+        div[data-testid="stProgress"] {
+            margin: 0.35rem 0;
+        }
+        div[data-testid="stProgress"] > div {
+            background: var(--app-blue-soft);
+        }
+        div[data-testid="stProgress"] div[role="progressbar"] {
+            background: var(--app-navy);
+        }
+
+        /* === Tabs: blue active state instead of default red === */
+        div[data-testid="stTabs"] button[role="tab"] {
+            font-size: 0.85rem; font-weight: 500; color: var(--app-muted);
+            padding: 0.35rem 0.9rem; border-radius: var(--app-radius) var(--app-radius) 0 0;
+        }
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            color: var(--app-navy); font-weight: 600;
+            border-bottom: 2px solid var(--app-navy);
+        }
+        div[data-testid="stTabs"] button[role="tab"]:hover {
+            color: var(--app-blue);
+        }
+
+        /* === Data tables: professional data-system look === */
         div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
             border: 1px solid var(--app-border);
-            border-radius: 7px;
+            border-radius: var(--app-radius);
             overflow: hidden;
+            font-size: 0.85rem;
         }
         div[data-testid="stDataFrame"] [role="columnheader"],
         div[data-testid="stDataEditor"] [role="columnheader"] {
-            background: #f0f4f7;
-            color: var(--app-navy);
-            font-weight: 700;
+            background: #edf2f7; color: var(--app-navy);
+            font-weight: 700; font-size: 0.8rem;
+            padding: 0.3rem 0.5rem;
         }
-        div[data-testid="stAlert"] {
-            border-radius: 7px;
-            border-width: 1px;
+        div[data-testid="stDataFrame"] td,
+        div[data-testid="stDataEditor"] td {
+            padding: 0.22rem 0.5rem; line-height: 1.3;
         }
+        div[data-testid="stDataFrame"] tr:nth-child(even) td,
+        div[data-testid="stDataEditor"] tr:nth-child(even) td {
+            background: #fafbfc;
+        }
+
+        /* === Buttons: refined hierarchy === */
         div[data-testid="stButton"] > button,
         div[data-testid="stDownloadButton"] > button {
-            border-radius: 6px;
-            min-height: 2.35rem;
-            font-weight: 600;
-            border-color: #b8c7d3;
+            border-radius: var(--app-radius);
+            min-height: 2.2rem;
+            font-weight: 600; font-size: 0.85rem;
+            border: 1px solid #b8c7d3;
+            padding: 0.2rem 0.9rem;
+            transition: none;
         }
         div[data-testid="stButton"] > button[kind="primary"],
         div[data-testid="stDownloadButton"] > button[kind="primary"] {
-            background: var(--app-navy);
+            background: var(--app-navy); color: #fff;
             border-color: var(--app-navy);
         }
+        div[data-testid="stButton"] > button[kind="primary"]:hover,
+        div[data-testid="stDownloadButton"] > button[kind="primary"]:hover {
+            background: var(--app-blue); border-color: var(--app-blue);
+        }
+        div[data-testid="stButton"] > button[kind="secondary"] {
+            background: var(--app-surface); color: var(--app-navy);
+            border-color: #b8c7d3;
+        }
+        div[data-testid="stButton"] > button[kind="secondary"]:hover {
+            border-color: var(--app-navy); color: var(--app-navy);
+        }
+
+        /* === Sidebar: compact and restrained === */
         div[data-testid="stSidebar"] {
-            background: #f1f5f8;
+            background: #f1f4f7;
             border-right: 1px solid var(--app-border);
         }
+        div[data-testid="stSidebar"] h3 {
+            font-size: 0.9rem; font-weight: 700; color: var(--app-navy);
+            margin: 0.6rem 0 0.3rem 0; padding-bottom: 0.2rem;
+        }
+        div[data-testid="stSidebar"] .stCaption {
+            font-size: 0.78rem; color: var(--app-muted); margin-bottom: 0.1rem;
+        }
         div[data-testid="stSidebar"] [data-testid="stFileUploader"] {
-            padding: 0.4rem;
-            border: 1px solid #d5e0e8;
-            border-radius: 7px;
-            background: #ffffff;
-            margin-bottom: 0.45rem;
+            padding: 0.25rem 0.35rem;
+            border: 1px solid var(--app-border);
+            border-radius: var(--app-radius);
+            background: var(--app-surface);
+            margin-bottom: 0.3rem;
+            font-size: 0.82rem;
         }
+        div[data-testid="stSidebar"] [data-testid="stFileUploader"] section {
+            padding: 0.2rem;
+        }
+        div[data-testid="stSidebar"] div[data-testid="stAlert"] {
+            padding: 0.2rem 0.5rem; margin-bottom: 0.15rem;
+        }
+        div[data-testid="stSidebar"] .stSelectbox label {
+            font-size: 0.78rem;
+        }
+
+        /* === Selectbox: compact === */
+        div[data-testid="stSidebar"] [data-baseweb="select"] {
+            font-size: 0.85rem;
+        }
+
+        /* === Captions === */
         .stCaption {
-            color: var(--app-muted);
+            color: var(--app-muted); font-size: 0.82rem;
         }
-        @media (max-width: 900px) {
-            .block-container { padding: 1rem; }
-            .app-hero { padding: 1.1rem; }
-            .app-hero h1 { font-size: 1.55rem; }
+
+        /* === Responsive === */
+        @media (max-width: 1024px) {
+            .block-container { padding: 1rem 0.8rem; }
+            .app-hero { padding: 0.85rem 1rem; }
+            .app-hero h1 { font-size: 1.3rem; }
+            h2 { font-size: 1.05rem; }
+            h3 { font-size: 0.95rem; }
+            div[data-testid="stTabs"] button[role="tab"] {
+                font-size: 0.78rem; padding: 0.3rem 0.55rem;
+            }
         }
         </style>
         """,
@@ -273,7 +371,7 @@ def _render_current_variable_status_card(variable_key, uploaded_file, review_tab
         elif undecided_count:
             st.warning(f"当前待办：请在下方“异常确认与人工复核”区域完成 {undecided_count} 条异常记录的判定。")
         elif confirmed:
-            st.success("当前变量已完成质量确认，可查看统计分析结果并生成变量分析报告。")
+            st.caption("当前变量已完成质量确认，可查看统计分析结果并生成变量分析报告。")
         else:
             st.info("下一步：请完成最终质量确认。")
 
@@ -951,9 +1049,9 @@ def _render_station_task_overview(
             st.warning(f"下一步：请确认当前变量“{current_name}”的最终质量控制结果。")
         elif all(stage == "已完成" for stage in stages.values()):
             if progress["可生成站点综合 Excel"]:
-                st.success("下一步：九个变量均已完成质量确认，可以生成站点综合结果。")
+                st.caption("下一步：九个变量均已完成质量确认，可以生成站点综合结果。")
             else:
-                st.success("当前变量任务已完成：九个变量均已完成质量确认。")
+                st.caption("当前变量任务已完成：九个变量均已完成质量确认。")
         else:
             first_incomplete = next((item_key for item_key in variable_keys if stages[item_key] != "已完成"), None)
             if first_incomplete:
@@ -1045,9 +1143,9 @@ def main():
         st.markdown(f"**{selected_metadata.get('display_name_cn', variable_key)}**")
         st.caption(f"{variable_key}｜单位：{selected_metadata.get('unit', '未设置')}")
         if st.session_state.get(_state_key(variable_key, "qc_confirmed"), False):
-            st.success("当前变量已完成质量确认")
+            st.caption("已完成质量确认")
         else:
-            st.caption("○ 待完成质量确认")
+            st.caption("待完成质量确认")
 
         uploaded_count = sum(st.session_state.get(f"{key}_upload") is not None for key in variable_keys)
         with st.expander(f"监测数据上传（{uploaded_count} / {len(variable_keys)}）", expanded=uploaded_count < len(variable_keys)):
