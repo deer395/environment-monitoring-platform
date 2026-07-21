@@ -903,12 +903,84 @@ def _build_station_task_progress(variable_keys, uploads, enable_range, enable_ha
     return confirmed_assets, table, progress
 
 
+def _overview_variable_stage(variable_key, uploaded_file, status_row):
+    """Translate existing task state into the five overview stages only."""
+    if uploaded_file is None:
+        return "未上传"
+    if status_row["人工确认状态"] == "已人工确认":
+        return "已完成"
+
+    review_table = st.session_state.get(_state_key(variable_key, "review_table"))
+    if review_table is None or _state_key(variable_key, "auto_qc_data") not in st.session_state:
+        return "待质量检查"
+    if summarize_candidate_decisions(review_table)["candidate_undecided_count"]:
+        return "待异常复核"
+    return "待质量确认"
+
+
+def _render_station_task_overview(
+    variable_keys, uploads, enable_range, enable_hampel, enable_constant,
+    station_info, current_variable_key,
+):
+    """Render a compact station-level view from existing task and QC state."""
+    _, table, progress = _build_station_task_progress(
+        variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info,
+    )
+    stages = {}
+    for index, item_key in enumerate(variable_keys):
+        stages[item_key] = _overview_variable_stage(item_key, uploads.get(item_key), table.iloc[index])
+
+    total = progress["变量总数"]
+    confirmed_count = progress["已确认变量数"]
+    uploaded_count = progress["已上传变量数"]
+    exportable_count = progress["可导出变量数"]
+    current_name = get_variable_metadata(current_variable_key).get("display_name_cn", current_variable_key)
+    site_name = str(station_info.get("site_name", "")).strip()
+
+    with st.container(border=True):
+        st.subheader("站点任务概览")
+        upload_col, confirmation_col, export_col, report_col = st.columns(4)
+        upload_col.metric("文件上传", f"{uploaded_count} / {total}")
+        confirmation_col.metric("质量确认", f"{confirmed_count} / {total}")
+        export_col.metric("可纳入综合结果", f"{exportable_count} / {total}")
+        report_col.metric("综合报告", "可以生成" if progress["可生成站点综合 Excel"] else "暂不可生成")
+        st.progress(confirmed_count / total if total else 0, text=f"站点任务进度：{confirmed_count} / {total} 个变量完成质量确认")
+
+        st.markdown("**九变量状态摘要**")
+        stage_columns = st.columns(3)
+        for index, item_key in enumerate(variable_keys):
+            metadata = get_variable_metadata(item_key)
+            with stage_columns[index % 3]:
+                st.caption(f"{metadata.get('display_name_cn', item_key)}：{stages[item_key]}")
+
+        if not site_name:
+            st.info("下一步：请填写站点名称。")
+        elif uploaded_count == 0:
+            st.info("下一步：请上传监测变量 Excel 文件。")
+        elif uploads.get(current_variable_key) is None:
+            st.info(f"下一步：请上传当前变量“{current_name}”的 Excel 文件。")
+        elif stages[current_variable_key] in {"待质量检查", "待异常复核"}:
+            st.warning(f"下一步：请完成当前变量“{current_name}”的异常确认与人工复核。")
+        elif stages[current_variable_key] == "待质量确认":
+            st.warning(f"下一步：请确认当前变量“{current_name}”的最终质量控制结果。")
+        elif progress["可生成站点综合 Excel"]:
+            st.success("下一步：九个变量均已完成质量确认，可以生成站点综合结果。")
+        else:
+            first_incomplete = next((item_key for item_key in variable_keys if stages[item_key] != "已完成"), None)
+            if first_incomplete:
+                next_name = get_variable_metadata(first_incomplete).get("display_name_cn", first_incomplete)
+                st.info(f"下一步：当前变量已完成，请切换至尚未完成的变量继续处理（{next_name}）。")
+            else:
+                st.info("下一步：请查看综合报告生成条件。")
+    return progress
+
+
 def _render_station_task_completion(variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context=None):
     confirmed_assets, table, progress = _build_station_task_progress(
         variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
     )
     with st.container(border=True):
-        st.subheader("任务完成状态")
+        st.subheader("详细任务状态")
         st.dataframe(_display_task_status_table(table), use_container_width=True, hide_index=True)
         st.caption(f"已上传文件：{progress['已上传变量数']} / {progress['变量总数']}；已完成质量确认：{progress['已确认变量数']}；已满足综合报告条件：{progress['可导出变量数']}")
         if progress["阻断项"]:
@@ -1009,6 +1081,10 @@ def main():
 
     _render_product_header(variable_keys, uploads)
     station_info = _render_station_task_info(variable_keys)
+    _render_station_task_overview(
+        variable_keys, uploads, enable_range, enable_hampel, enable_constant,
+        station_info, variable_key,
+    )
     st.header("监测文件上传")
     with st.container(border=True):
         st.caption("请在左侧栏上传九个监测变量的 Excel 文件，并选择需要处理的变量。")
