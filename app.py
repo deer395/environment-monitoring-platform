@@ -968,14 +968,13 @@ def _render_station_task_completion(variable_keys, uploads, enable_range, enable
     confirmed_assets, table, progress = _build_station_task_progress(
         variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
     )
-    with st.container(border=True):
-        st.subheader("详细任务状态")
+    st.caption(f"已上传文件：{progress['已上传变量数']} / {progress['变量总数']}；已完成质量确认：{progress['已确认变量数']}；已满足综合报告条件：{progress['可导出变量数']}")
+    if progress["阻断项"]:
+        st.warning("暂不满足综合报告生成条件：\n\n- " + "\n- ".join(progress["阻断项"]))
+    else:
+        st.success("九个变量均已完成质量确认，可以生成综合 Excel 和综合报告。")
+    with st.expander("详细任务状态", expanded=False):
         st.dataframe(_display_task_status_table(table), use_container_width=True, hide_index=True)
-        st.caption(f"已上传文件：{progress['已上传变量数']} / {progress['变量总数']}；已完成质量确认：{progress['已确认变量数']}；已满足综合报告条件：{progress['可导出变量数']}")
-        if progress["阻断项"]:
-            st.warning("暂不满足综合报告生成条件：\n\n- " + "\n- ".join(progress["阻断项"]))
-        else:
-            st.success("九个变量均已完成质量确认，可以生成综合 Excel 和综合报告。")
     with st.container(border=True):
         st.subheader("综合结果导出")
         st.caption("全部变量完成质量确认后，可生成站点综合 Excel 和综合报告。")
@@ -1311,25 +1310,30 @@ def main():
         daily = resampled["daily"]
         st.caption(f"小时平均记录数：{len(hourly)}；日平均记录数：{len(daily)}")
         basic_df = build_basic_statistics_table([basic_row])
-        st.subheader("基础统计摘要")
-        st.dataframe(_display_table(basic_df), use_container_width=True)
-        st.download_button("下载当前变量统计结果 CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
+        tab_trend, tab_intraday, tab_monthly, tab_indicators = st.tabs(["时序趋势", "日内变化", "月度变化", "统计指标"])
+        with tab_trend:
+            st.plotly_chart(_create_hourly_daily_figure(hourly, daily, variable_key), use_container_width=True)
+        with tab_intraday:
+            st.plotly_chart(_create_anomaly_figure(anomaly, variable_key), use_container_width=True)
+            st.subheader("日变化幅度")
+            st.dataframe(_display_table(metrics["daily_range"]), use_container_width=True)
+            if pd.notna(metrics.get("max_daily_range")):
+                st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
+        with tab_monthly:
+            st.dataframe(_display_table(metrics["monthly"]), use_container_width=True)
+            st.plotly_chart(_create_monthly_statistics_figure(metrics["monthly"], variable_key), use_container_width=True)
+        with tab_indicators:
+            st.subheader("基础统计摘要")
+            st.dataframe(_display_table(basic_df), use_container_width=True)
+            st.download_button("下载当前变量统计结果 CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
 
-        st.plotly_chart(_create_hourly_daily_figure(hourly, daily, variable_key), use_container_width=True)
-        st.plotly_chart(_create_anomaly_figure(anomaly, variable_key), use_container_width=True)
-
-        st.subheader("月度统计摘要")
-        st.dataframe(_display_table(metrics["monthly"]), use_container_width=True)
-        st.plotly_chart(_create_monthly_statistics_figure(metrics["monthly"], variable_key), use_container_width=True)
-        st.subheader("日变化幅度")
-        st.dataframe(_display_table(metrics["daily_range"]), use_container_width=True)
-        if pd.notna(metrics.get("max_daily_range")):
-            st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
-
+        st.header("报告与结果导出")
+        st.subheader("当前变量报告")
         _render_single_variable_report_entry(
             variable_key, uploads[variable_key], enable_range, enable_hampel, enable_constant,
             current_context, raw, resampled, anomaly, metrics, station_info,
         )
+        st.subheader("站点综合结果")
         _render_station_task_completion(
             variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
         )
