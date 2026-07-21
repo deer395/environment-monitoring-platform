@@ -223,7 +223,6 @@ def _render_product_header(variable_keys, uploads):
 def _render_current_variable_status_card(variable_key, uploaded_file, review_table=None, station_progress=None):
     """Show existing variable-task state without changing any processing decisions."""
     metadata = get_variable_metadata(variable_key)
-    variable_name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
     confirmed = st.session_state.get(_state_key(variable_key, "qc_confirmed"), False)
     invalid_reason = st.session_state.get(_state_key(variable_key, "confirmation_invalid_reason"))
@@ -235,35 +234,35 @@ def _render_current_variable_status_card(variable_key, uploaded_file, review_tab
         undecided_count = candidate_summary["candidate_undecided_count"]
 
     with st.container(border=True):
-        st.subheader(f"当前处理变量：{variable_name}")
+        st.subheader("处理状态")
         st.caption(f"变量标识：{variable_key}｜单位：{unit or '未设置'}")
         file_col, check_col, review_col, result_col = st.columns(4)
         with file_col:
             if uploaded_file is None:
-                st.caption("○ 文件未上传")
+                st.caption("○ 未上传")
             else:
-                st.success("文件已上传")
+                st.success("已上传")
         with check_col:
             if review_table is None:
-                st.caption("○ 自动质量检查未开始")
+                st.caption("○ 待质量检查")
             else:
-                st.success("自动质量检查完成")
+                st.success("质量检查已完成")
         with review_col:
             if review_table is None:
-                st.caption("○ 异常复核未开始")
+                st.caption("○ 待异常复核")
             elif undecided_count:
-                st.warning(f"待人工确认异常：{undecided_count} 条")
+                st.warning(f"待异常复核：{undecided_count} 条")
             elif candidate_count:
                 st.success("异常复核已完成")
             else:
-                st.success("未发现待确认异常")
+                st.success("无需异常复核")
         with result_col:
             if invalid_reason:
                 st.error("需要重新确认")
             elif confirmed:
-                st.success("质量确认已完成")
+                st.success("已完成")
             else:
-                st.caption("○ 质量确认未完成")
+                st.caption("○ 待质量确认")
 
         if uploaded_file is None:
             st.info("下一步：请在左侧栏上传该变量的 Excel 文件。")
@@ -668,9 +667,9 @@ def _display_task_status_table(table):
         "是否可纳入站点综合导出": "是否满足综合报告生成条件",
     }).copy()
     display_table = display_table.replace({
-        "未提供": "未上传文件",
-        "未处理": "待处理",
-        "仅自动质控": "等待人工复核",
+        "未提供": "未上传",
+        "未处理": "待质量检查",
+        "仅自动质控": "待异常复核或质量确认",
         "已人工确认": "已完成质量确认",
         "确认结果已失效": "需重新确认",
     })
@@ -933,16 +932,14 @@ def _render_station_task_overview(
     total = progress["变量总数"]
     confirmed_count = progress["已确认变量数"]
     uploaded_count = progress["已上传变量数"]
-    exportable_count = progress["可导出变量数"]
     current_name = get_variable_metadata(current_variable_key).get("display_name_cn", current_variable_key)
     site_name = str(station_info.get("site_name", "")).strip()
 
     with st.container(border=True):
         st.subheader("站点任务概览")
-        upload_col, confirmation_col, export_col, report_col = st.columns(4)
+        upload_col, confirmation_col, report_col = st.columns(3)
         upload_col.metric("文件上传", f"{uploaded_count} / {total}")
         confirmation_col.metric("质量确认", f"{confirmed_count} / {total}")
-        export_col.metric("可纳入综合结果", f"{exportable_count} / {total}")
         report_col.metric("综合报告", "可以生成" if progress["可生成站点综合 Excel"] else "暂不可生成")
         st.progress(confirmed_count / total if total else 0, text=f"站点任务进度：{confirmed_count} / {total} 个变量完成质量确认")
 
@@ -954,17 +951,19 @@ def _render_station_task_overview(
                 st.caption(f"{metadata.get('display_name_cn', item_key)}：{stages[item_key]}")
 
         if not site_name:
-            st.info("下一步：请填写站点名称。")
-        elif uploaded_count == 0:
-            st.info("下一步：请上传监测变量 Excel 文件。")
-        elif uploads.get(current_variable_key) is None:
+            st.caption("任务信息待补充：尚未填写站点名称，生成综合报告前需要补充。")
+
+        if uploads.get(current_variable_key) is None:
             st.info(f"下一步：请上传当前变量“{current_name}”的 Excel 文件。")
         elif stages[current_variable_key] in {"待质量检查", "待异常复核"}:
             st.warning(f"下一步：请完成当前变量“{current_name}”的异常确认与人工复核。")
         elif stages[current_variable_key] == "待质量确认":
             st.warning(f"下一步：请确认当前变量“{current_name}”的最终质量控制结果。")
-        elif progress["可生成站点综合 Excel"]:
-            st.success("下一步：九个变量均已完成质量确认，可以生成站点综合结果。")
+        elif all(stage == "已完成" for stage in stages.values()):
+            if progress["可生成站点综合 Excel"]:
+                st.success("下一步：九个变量均已完成质量确认，可以生成站点综合结果。")
+            else:
+                st.success("当前变量任务已完成：九个变量均已完成质量确认。")
         else:
             first_incomplete = next((item_key for item_key in variable_keys if stages[item_key] != "已完成"), None)
             if first_incomplete:
@@ -1093,7 +1092,7 @@ def main():
     uploaded = uploads.get(variable_key)
     current_variable_metadata = get_variable_metadata(variable_key)
     current_variable_name = current_variable_metadata.get("display_name_cn", variable_key)
-    st.header(f"当前变量工作区：{current_variable_name}")
+    st.header(f"{current_variable_name}变量工作区")
     if uploaded is None:
         _, _, station_progress = _build_station_task_progress(
             variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info,
