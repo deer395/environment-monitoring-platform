@@ -1061,13 +1061,17 @@ def main():
         else:
             st.caption("○ 待完成质量确认")
 
-        st.markdown("### 监测数据上传")
-        st.caption("请上传各监测变量 Excel 文件，上传状态将在下方显示。")
-        for key in variable_keys:
-            metadata = get_variable_metadata(key)
-            label = f"上传{metadata.get('display_name_cn', key)} Excel"
-            uploads[key] = st.file_uploader(label, type=["xls", "xlsx"], key=f"{key}_upload")
-            st.caption("✓ 已上传" if uploads[key] is not None else "○ 未上传")
+        uploaded_count = sum(st.session_state.get(f"{key}_upload") is not None for key in variable_keys)
+        with st.expander(f"监测数据上传（{uploaded_count} / {len(variable_keys)}）", expanded=uploaded_count < len(variable_keys)):
+            st.caption("请上传各监测变量 Excel 文件。")
+            for key in variable_keys:
+                metadata = get_variable_metadata(key)
+                label = f"{metadata.get('display_name_cn', key)}（Excel）"
+                uploads[key] = st.file_uploader(label, type=["xls", "xlsx"], key=f"{key}_upload")
+                if uploads[key] is not None:
+                    st.caption(f"已上传：{uploads[key].name}")
+                else:
+                    st.caption("未上传")
 
         st.markdown("### 分析时间范围")
         st.caption("时间范围仅作用于当前选择变量。")
@@ -1085,9 +1089,6 @@ def main():
         variable_keys, uploads, enable_range, enable_hampel, enable_constant,
         station_info, variable_key,
     )
-    st.header("监测文件上传")
-    with st.container(border=True):
-        st.caption("请在左侧栏上传九个监测变量的 Excel 文件，并选择需要处理的变量。")
 
     uploaded = uploads.get(variable_key)
     current_variable_metadata = get_variable_metadata(variable_key)
