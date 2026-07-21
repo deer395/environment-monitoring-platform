@@ -277,16 +277,6 @@ def _render_current_variable_status_card(variable_key, uploaded_file, review_tab
         else:
             st.info("下一步：请完成最终质量确认。")
 
-        if station_progress is not None:
-            st.markdown("**站点综合报告状态**")
-            remaining_count = station_progress["变量总数"] - station_progress["已确认变量数"]
-            if station_progress["可生成站点综合 Excel"]:
-                st.success("九个变量均已完成质量确认，可生成站点综合报告。")
-            elif remaining_count > 0:
-                st.warning(f"尚有 {remaining_count} 个变量未完成质量确认，暂不可生成站点综合报告。")
-            else:
-                st.warning("九个变量均已完成质量确认，但仍有其他生成条件未满足。")
-
 
 def _uploaded_bytes(uploaded_file):
     return uploaded_file.getvalue() if uploaded_file is not None else None
