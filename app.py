@@ -306,7 +306,7 @@ def _render_product_header(variable_keys, uploads):
         <section class="app-hero">
             <div class="app-hero__eyebrow">环境监测数据工作台</div>
             <h1>环境监测数据质控与分析工具</h1>
-            <p class="app-hero__subtitle">面向环境监测数据的自动质量检查、人工复核与报告生成平台。</p>
+            <p class="app-hero__subtitle">单站点监测数据的质量控制、统计分析与报告生成工作台。</p>
             <div class="app-hero__meta">
                 <span class="app-hero__task">当前任务：{site_name}</span>
                 <span>已上传 {uploaded_count} / {len(variable_keys)} 个变量文件</span>
@@ -819,20 +819,46 @@ def _decision_summary(review_table, final_qc_data, auto_qc_data, qc_summary):
     }
 
 
+APP_PLOTLY_COLOR = "#1a3650"
+APP_PLOTLY_SECONDARY = "#2c5f8a"
+APP_PLOTLY_HIGHLIGHT = "#9a3b3b"
+APP_PLOTLY_AMBER = "#8b6d1a"
+
+
+def _apply_figure_visual_style(fig, show_legend=True):
+    """Apply the restrained V5 visual system to Plotly figures without changing data."""
+    legend_opts = {"font": {"size": 10}, "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}
+    margin_opts = {"l": 50, "r": 20, "t": 50 if show_legend else 30, "b": 40}
+    fig.update_layout(
+        font={"family": "system-ui, sans-serif", "size": 11, "color": "#1e2c38"},
+        xaxis={"title": {"font": {"size": 11}}, "tickfont": {"size": 10}},
+        yaxis={"title": {"font": {"size": 11}}, "tickfont": {"size": 10}},
+        legend=legend_opts,
+        showlegend=show_legend,
+        hovermode="x unified",
+        margin=margin_opts,
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        xaxis_gridcolor="#e8edf2",
+        yaxis_gridcolor="#e8edf2",
+    )
+
+
 def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
     metadata = get_variable_metadata(variable_key)
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
     fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "自动质量检查后时序"), shared_xaxes=True, shared_yaxes=True)
-    fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": "#1f77b4", "width": 1}), row=1, col=1)
-    fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动质量检查后", line={"color": "#d62728", "width": 1}), row=1, col=2)
+    fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": APP_PLOTLY_COLOR, "width": 1}), row=1, col=1)
+    fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动质量检查后", line={"color": APP_PLOTLY_HIGHLIGHT, "width": 1}), row=1, col=2)
     y_values = raw["value"].dropna()
     if not y_values.empty:
         y_min, y_max = y_values.min(), y_values.max()
         margin = max((y_max - y_min) * 0.05, 1e-6)
         fig.update_yaxes(range=[y_min - margin, y_max + margin])
-    fig.update_layout(title=f"{name}自动质量检查前后对比", yaxis_title=f"{name}({unit})", hovermode="x unified", margin={"l": 50, "r": 20, "t": 60, "b": 40})
+    fig.update_layout(yaxis_title=f"{name}({unit})")
     fig.update_xaxes(title_text="日期", tickformat="%Y/%m/%d")
+    _apply_figure_visual_style(fig, show_legend=False)
     return fig
 
 
@@ -841,10 +867,11 @@ def _create_hourly_daily_figure(hourly, daily, variable_key):
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
     fig = go.Figure()
-    fig.add_trace(go.Scattergl(x=hourly["datetime"], y=hourly["value"], mode="lines", name="小时平均", line={"color": "#1f77b4", "width": 0.7}, opacity=0.35))
-    fig.add_trace(go.Scattergl(x=daily["datetime"], y=daily["value"], mode="lines", name="日平均", line={"color": "#ff3333", "width": 2.2}))
-    fig.update_layout(title=f"{name}小时平均与日平均", xaxis_title="日期", yaxis_title=f"{name}({unit})", hovermode="x unified")
+    fig.add_trace(go.Scattergl(x=hourly["datetime"], y=hourly["value"], mode="lines", name="小时平均", line={"color": APP_PLOTLY_COLOR, "width": 0.7}, opacity=0.35))
+    fig.add_trace(go.Scattergl(x=daily["datetime"], y=daily["value"], mode="lines", name="日平均", line={"color": APP_PLOTLY_HIGHLIGHT, "width": 2.2}))
+    fig.update_layout(xaxis_title="日期", yaxis_title=f"{name}({unit})")
     fig.update_xaxes(tickformat="%Y/%m/%d")
+    _apply_figure_visual_style(fig, show_legend=True)
     return fig
 
 
@@ -853,10 +880,11 @@ def _create_anomaly_figure(anomaly, variable_key):
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
     fig = go.Figure()
-    fig.add_trace(go.Scattergl(x=anomaly["datetime"], y=anomaly["anomaly"], mode="lines", name="日内距平", line={"color": "#1f77b4", "width": 1}))
-    fig.add_hline(y=0, line_color="#333333", line_width=1)
-    fig.update_layout(title=f"{name}日内距平", xaxis_title="日期", yaxis_title=f"{name}距平({unit})", hovermode="x unified")
+    fig.add_trace(go.Scattergl(x=anomaly["datetime"], y=anomaly["anomaly"], mode="lines", name="日内距平", line={"color": APP_PLOTLY_COLOR, "width": 1}))
+    fig.add_hline(y=0, line_color="#555555", line_width=1)
+    fig.update_layout(xaxis_title="日期", yaxis_title=f"{name}距平({unit})")
     fig.update_xaxes(tickformat="%Y/%m/%d")
+    _apply_figure_visual_style(fig, show_legend=False)
     return fig
 
 
@@ -872,15 +900,11 @@ def _create_monthly_statistics_figure(monthly, variable_key):
             mode="lines+markers",
             name="月平均",
             error_y={"type": "data", "array": monthly["monthly_std"], "visible": True},
-            line={"color": "#1f77b4", "width": 2},
+            line={"color": APP_PLOTLY_COLOR, "width": 2},
         )
     )
-    fig.update_layout(
-        title=f"{name}月平均和月标准差",
-        xaxis_title="年月",
-        yaxis_title=f"{name}({unit})",
-        hovermode="x unified",
-    )
+    fig.update_layout(xaxis_title="年月", yaxis_title=f"{name}({unit})")
+    _apply_figure_visual_style(fig, show_legend=False)
     return fig
 
 
@@ -1068,9 +1092,11 @@ def _render_station_task_completion(variable_keys, uploads, enable_range, enable
     )
     st.caption(f"已上传文件：{progress['已上传变量数']} / {progress['变量总数']}；已完成质量确认：{progress['已确认变量数']}；已满足综合报告条件：{progress['可导出变量数']}")
     if progress["阻断项"]:
-        st.warning("暂不满足综合报告生成条件：\n\n- " + "\n- ".join(progress["阻断项"]))
+        st.warning(f"综合结果暂不可生成：尚缺 {len(progress['阻断项'])} 个条件。")
+        with st.expander("查看阻断详情", expanded=False):
+            st.warning("暂不满足综合报告生成条件：\n\n- " + "\n- ".join(progress["阻断项"]))
     else:
-        st.success("九个变量均已完成质量确认，可以生成综合 Excel 和综合报告。")
+        st.caption("九个变量均已完成质量确认，可以生成综合 Excel 和综合报告。")
     with st.expander("详细任务状态", expanded=False):
         st.dataframe(_display_task_status_table(table), use_container_width=True, hide_index=True)
     with st.container(border=True):
@@ -1263,9 +1289,23 @@ def main():
             )
         st.caption(f"当前数据源：{_source_label(variable_key, uploaded)}")
         st.header("自动质量检查")
-        st.dataframe(_display_table(_health_table(raw, qc_summary)), use_container_width=True)
+        h_raw = qc_summary.get("raw_count", 0)
+        h_missing = qc_summary.get("missing_before_qc", 0)
+        h_auto_removed = qc_summary.get("removed_by_sensor_zero", 0) + qc_summary.get("removed_by_range", 0)
+        h_flagged = qc_summary.get("flagged_by_hampel", 0) + qc_summary.get("flagged_by_constant_value", 0)
+        h_valid = int(auto_qc_data["value"].notna().sum())
+        h_time = f"{raw['datetime'].min()} 至 {raw['datetime'].max()}" if not raw.empty else "—"
+        sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
+        sc1.metric("原始记录", h_raw)
+        sc2.metric("原始缺测", h_missing)
+        sc3.metric("自动删除", h_auto_removed)
+        sc4.metric("待确认异常", h_flagged)
+        sc5.metric("有效记录数", h_valid)
+        sc6.metric("时间范围", h_time[:10] + "…" if len(h_time) > 14 else h_time)
         st.caption("系统默认执行：合理范围检测、Hampel 异常检测、连续恒定值检测。")
-        st.caption("此处仅展示传感器无效值和范围异常检测的自动处理结果；Hampel 统计异常、连续恒定值异常及人工复核结果将在下一步显示。")
+        with st.expander("完整质量检查明细", expanded=False):
+            st.dataframe(_display_table(_health_table(raw, qc_summary)), use_container_width=True)
+        st.caption(f"{current_variable_name}自动质量检查前后对比")
         st.plotly_chart(_create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key), use_container_width=True)
 
         st.header("异常确认与人工复核")
@@ -1330,16 +1370,23 @@ def main():
         st.caption("左图显示待人工确认异常；当前复核时间范围内的原始记录可点选、框选或套索选择。右图为最终质量控制结果实时预览。")
         left, right = st.columns(2)
         with left:
+            qc_candidate_fig = create_qc_candidate_figure(raw, qc_log, review_table, variable_key, selectable_raw_df=selectable_raw)
+            qc_candidate_fig.update_layout(title=None, margin={"l": 60, "r": 20, "t": 30, "b": 50})
+            _apply_figure_visual_style(qc_candidate_fig, show_legend=True)
             selected_event = st.plotly_chart(
-                create_qc_candidate_figure(raw, qc_log, review_table, variable_key, selectable_raw_df=selectable_raw),
+                qc_candidate_fig,
                 use_container_width=True,
                 on_select="rerun",
                 selection_mode=["points", "box", "lasso"],
                 key=f"{variable_key}_candidate_plot",
             )
         with right:
+            qc_final_fig = create_final_qc_figure(final_qc_data, raw, variable_key, summary_counts["最终缺测数"], summary_counts["最终有效记录数"])
+            qc_final_fig.update_layout(title=None, margin={"l": 60, "r": 20, "t": 10, "b": 50})
+            _apply_figure_visual_style(qc_final_fig, show_legend=False)
+            st.caption(f"{current_variable_name}最终质量控制预览：最终缺测 {summary_counts['最终缺测数']}，有效记录 {summary_counts['最终有效记录数']}")
             st.plotly_chart(
-                create_final_qc_figure(final_qc_data, raw, variable_key, summary_counts["最终缺测数"], summary_counts["最终有效记录数"]),
+                qc_final_fig,
                 use_container_width=True,
                 key=f"{variable_key}_final_plot",
             )
@@ -1410,8 +1457,10 @@ def main():
         basic_df = build_basic_statistics_table([basic_row])
         tab_trend, tab_intraday, tab_monthly, tab_indicators = st.tabs(["时序趋势", "日内变化", "月度变化", "统计指标"])
         with tab_trend:
+            st.caption(f"{current_variable_name}小时平均与日平均")
             st.plotly_chart(_create_hourly_daily_figure(hourly, daily, variable_key), use_container_width=True)
         with tab_intraday:
+            st.caption(f"{current_variable_name}日内距平")
             st.plotly_chart(_create_anomaly_figure(anomaly, variable_key), use_container_width=True)
             st.subheader("日变化幅度")
             st.dataframe(_display_table(metrics["daily_range"]), use_container_width=True)
@@ -1419,9 +1468,10 @@ def main():
                 st.metric("整个观测期最大日变化幅度", round(metrics["max_daily_range"], 4))
         with tab_monthly:
             st.dataframe(_display_table(metrics["monthly"]), use_container_width=True)
+            st.caption(f"{current_variable_name}月平均和月标准差")
             st.plotly_chart(_create_monthly_statistics_figure(metrics["monthly"], variable_key), use_container_width=True)
         with tab_indicators:
-            st.subheader("基础统计摘要")
+            st.caption("基础统计摘要")
             st.dataframe(_display_table(basic_df), use_container_width=True)
             st.download_button("下载当前变量统计结果 CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
 
