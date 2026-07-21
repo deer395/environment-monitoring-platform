@@ -819,8 +819,8 @@ def _refresh_station_report_title():
 
 
 def _render_station_task_info(variable_keys):
-    st.header("站点任务信息")
-    with st.container(border=True):
+    has_site_name = bool(st.session_state.get("station_task:site_name", "").strip())
+    with st.expander("站点任务信息", expanded=not has_site_name):
         st.caption("填写本次站点任务的基础信息，内容将用于正式报告标题和封面信息。")
         if "station_task:report_title" not in st.session_state:
             _refresh_station_report_title()
@@ -1261,33 +1261,34 @@ def main():
         s4.button("清除当前选择", disabled=not selected_ids, on_click=_clear_selection)
 
         range_table = review_table.loc[range_mask].copy()
-        st.subheader("逐条复核记录")
-        st.caption(f"当前显示 {check_start} 至 {check_end} 的记录，共 {len(range_table)} 条。")
-        edited_range = st.data_editor(
-            range_table,
-            use_container_width=True,
-            hide_index=True,
-            height=320,
-            column_config=_editor_column_config(),
-            disabled=["record_id", "datetime", "original_value", "existing_rule", "algorithm_flag", "current_qc_value"],
-            key=f"{variable_key}_review_editor",
-        )
-        if _range_decisions_changed(range_table, edited_range):
-            st.session_state[_state_key(variable_key, "review_table")] = _update_review_table(review_table, edited_range)
-            st.session_state[_state_key(variable_key, "qc_confirmed")] = False
-            clear_variable_result_caches(st.session_state, variable_key)
-            st.rerun()
+        st.caption(f"可展开查看并逐条编辑当前复核时间范围内的记录（{check_start} 至 {check_end}，共 {len(range_table)} 条）。")
+        with st.expander("逐条复核记录", expanded=False):
+            st.caption(f"当前显示 {check_start} 至 {check_end} 的记录，共 {len(range_table)} 条。")
+            edited_range = st.data_editor(
+                range_table,
+                use_container_width=True,
+                hide_index=True,
+                height=320,
+                column_config=_editor_column_config(),
+                disabled=["record_id", "datetime", "original_value", "existing_rule", "algorithm_flag", "current_qc_value"],
+                key=f"{variable_key}_review_editor",
+            )
+            if _range_decisions_changed(range_table, edited_range):
+                st.session_state[_state_key(variable_key, "review_table")] = _update_review_table(review_table, edited_range)
+                st.session_state[_state_key(variable_key, "qc_confirmed")] = False
+                clear_variable_result_caches(st.session_state, variable_key)
+                st.rerun()
 
-        st.subheader("质量控制操作记录")
-        final_log_table = build_qc_log_table(final_qc_log)
-        rule_options = ["全部"] + sorted(final_log_table["rule"].dropna().unique().tolist()) if not final_log_table.empty else ["全部"]
-        selected_rule = st.selectbox("按处理规则筛选记录", rule_options)
-        shown_log = final_log_table if selected_rule == "全部" else final_log_table[final_log_table["rule"] == selected_rule]
-        st.dataframe(_display_table(shown_log), use_container_width=True)
-        if st.button("生成质量控制记录 Excel"):
-            st.session_state[_state_key(variable_key, "qc_log_excel_bytes")] = _excel_bytes({"qc_log": final_log_table})
-        if _state_key(variable_key, "qc_log_excel_bytes") in st.session_state:
-            st.download_button("下载质量控制记录 Excel", st.session_state[_state_key(variable_key, "qc_log_excel_bytes")], "final_qc_log.xlsx")
+        with st.expander("质量控制操作记录", expanded=False):
+            final_log_table = build_qc_log_table(final_qc_log)
+            rule_options = ["全部"] + sorted(final_log_table["rule"].dropna().unique().tolist()) if not final_log_table.empty else ["全部"]
+            selected_rule = st.selectbox("按处理规则筛选记录", rule_options)
+            shown_log = final_log_table if selected_rule == "全部" else final_log_table[final_log_table["rule"] == selected_rule]
+            st.dataframe(_display_table(shown_log), use_container_width=True)
+            if st.button("生成质量控制记录 Excel"):
+                st.session_state[_state_key(variable_key, "qc_log_excel_bytes")] = _excel_bytes({"qc_log": final_log_table})
+            if _state_key(variable_key, "qc_log_excel_bytes") in st.session_state:
+                st.download_button("下载质量控制记录 Excel", st.session_state[_state_key(variable_key, "qc_log_excel_bytes")], "final_qc_log.xlsx")
 
         if st.button("确认最终质量控制结果", type="primary"):
             try:
