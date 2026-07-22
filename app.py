@@ -103,28 +103,54 @@ def _inject_visual_styles():
         }
         h4 { font-size: 0.9rem; font-weight: 600; color: var(--app-navy); margin: 0.5rem 0 0.2rem 0; }
 
-        /* === Hero banner: compact professional header === */
-        .app-hero {
-            background: var(--app-surface);
-            border: 1px solid var(--app-border);
-            border-left: 4px solid var(--app-navy);
+        /* === Top bar: compact task header === */
+        .app-topbar {
+            background: var(--app-navy); color: #fff;
+            padding: 0.5rem 1rem; margin: 0 0 0.6rem 0;
             border-radius: var(--app-radius);
-            padding: 1rem 1.25rem;
-            margin: 0 0 1.25rem 0;
+            font-size: 0.82rem; line-height: 1.5;
+            display: flex; flex-wrap: wrap; align-items: center;
+            gap: 0.3rem 0.9rem; min-height: 2.5rem;
         }
-        .app-hero__eyebrow {
-            color: var(--app-blue); font-size: 0.72rem; font-weight: 700;
-            letter-spacing: 0.06em; margin-bottom: 0.2rem; text-transform: uppercase;
+        .app-topbar__task { font-weight: 700; font-size: 0.92rem; }
+        .app-topbar__sep { color: rgba(255,255,255,0.3); user-select: none; }
+        .app-topbar__meta { color: rgba(255,255,255,0.82); font-size: 0.8rem; }
+
+        /* === Stage process strip === */
+        .process-strip {
+            text-align: center; padding: 0.3rem 0.5rem 0.5rem 0.5rem;
+            border-bottom: 1px solid var(--app-border); margin: 0 0 1rem 0;
         }
-        .app-hero h1 { margin: 0; font-size: 1.55rem; line-height: 1.2; border-bottom: none; }
-        .app-hero__subtitle { color: #425466; font-size: 0.88rem; margin: 0.3rem 0 0.6rem 0; }
-        .app-hero__meta {
-            display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
-            color: var(--app-muted); font-size: 0.8rem;
+        .process-step {
+            display: inline-block; font-size: 0.78rem; color: var(--app-muted);
+            margin: 0 0.05rem; font-weight: 500;
         }
-        .app-hero__task {
-            background: var(--app-blue-soft); color: var(--app-navy);
-            border-radius: 3px; padding: 0.22rem 0.5rem; font-weight: 600; font-size: 0.8rem;
+        .process-step--active {
+            color: var(--app-navy); font-weight: 700;
+        }
+        .process-step__sep { color: #c8cdd4; margin: 0 0.3rem; font-size: 0.72rem; }
+
+        /* === Workspace headers === */
+        .workspace-header {
+            margin: 1rem 0 0.5rem 0;
+            padding-top: 0.4rem;
+            border-top: 1px solid var(--app-border);
+        }
+        .workspace-header__inner {
+            display: flex; align-items: center; gap: 0.6rem;
+        }
+        .workspace-index {
+            font-size: 1.1rem; font-weight: 700; color: var(--app-navy);
+            background: var(--app-blue-soft); border-radius: 3px;
+            padding: 0.15rem 0.45rem; line-height: 1.3;
+        }
+        .workspace-header__text { display: flex; flex-direction: column; }
+        .workspace-title {
+            font-size: 1rem; font-weight: 700; color: var(--app-navy);
+            line-height: 1.2;
+        }
+        .workspace-description {
+            font-size: 0.78rem; color: var(--app-muted); line-height: 1.3;
         }
 
         /* === Cards & containers: flat, restrained, minimal shadow === */
@@ -283,8 +309,9 @@ def _inject_visual_styles():
         /* === Responsive === */
         @media (max-width: 1024px) {
             .block-container { padding: 1rem 0.8rem; }
-            .app-hero { padding: 0.85rem 1rem; }
-            .app-hero h1 { font-size: 1.3rem; }
+            .app-topbar { font-size: 0.76rem; padding: 0.4rem 0.7rem; min-height: auto; }
+            .app-topbar__task { font-size: 0.82rem; }
+            .workspace-header { margin: 0.8rem 0 0.4rem 0; }
             h2 { font-size: 1.05rem; }
             h3 { font-size: 0.95rem; }
             div[data-testid="stTabs"] button[role="tab"] {
@@ -292,27 +319,6 @@ def _inject_visual_styles():
             }
         }
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_product_header(variable_keys, uploads):
-    """Render the visual-only product identity and live task summary."""
-    site_name = escape(str(st.session_state.get("station_task:site_name", "")).strip() or "未命名站点")
-    uploaded_count = sum(upload is not None for upload in uploads.values())
-    st.markdown(
-        f"""
-        <section class="app-hero">
-            <div class="app-hero__eyebrow">环境监测数据工作台</div>
-            <h1>环境监测数据质控与分析工具</h1>
-            <p class="app-hero__subtitle">单站点监测数据的质量控制、统计分析与报告生成工作台。</p>
-            <div class="app-hero__meta">
-                <span class="app-hero__task">当前任务：{site_name}</span>
-                <span>已上传 {uploaded_count} / {len(variable_keys)} 个变量文件</span>
-                <span>当前版本：V4.2</span>
-            </div>
-        </section>
         """,
         unsafe_allow_html=True,
     )
@@ -827,20 +833,24 @@ APP_PLOTLY_AMBER = "#8b6d1a"
 
 def _apply_figure_visual_style(fig, show_legend=True):
     """Apply the restrained V5 visual system to Plotly figures without changing data."""
-    legend_opts = {"font": {"size": 10}, "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}
+    legend_opts = {"font": {"size": 12}, "title": {"text": ""}, "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0}
     margin_opts = {"l": 50, "r": 20, "t": 50 if show_legend else 30, "b": 40}
     fig.update_layout(
-        font={"family": "system-ui, sans-serif", "size": 11, "color": "#1e2c38"},
-        xaxis={"title": {"font": {"size": 11}}, "tickfont": {"size": 10}},
-        yaxis={"title": {"font": {"size": 11}}, "tickfont": {"size": 10}},
+        font={"family": "system-ui, sans-serif", "size": 12, "color": "#1e2c38"},
         legend=legend_opts,
         showlegend=show_legend,
         hovermode="x unified",
         margin=margin_opts,
         plot_bgcolor="#ffffff",
         paper_bgcolor="#ffffff",
-        xaxis_gridcolor="#e8edf2",
-        yaxis_gridcolor="#e8edf2",
+    )
+    fig.update_xaxes(
+        title_font={"size": 13}, tickfont={"size": 12, "color": "#475569"},
+        linecolor="#94A3B8", gridcolor="#E2E8F0", zerolinecolor="#94A3B8",
+    )
+    fig.update_yaxes(
+        title_font={"size": 13}, tickfont={"size": 12, "color": "#475569"},
+        linecolor="#94A3B8", gridcolor="#E2E8F0", zerolinecolor="#94A3B8",
     )
 
 
@@ -848,16 +858,26 @@ def _create_auto_rule_comparison_figure(raw, auto_qc_data, variable_key):
     metadata = get_variable_metadata(variable_key)
     name = metadata.get("display_name_cn", variable_key)
     unit = metadata.get("unit", "")
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("原始时序", "自动质量检查后时序"), shared_xaxes=True, shared_yaxes=True)
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=("原始时序", "自动质量检查后时序"),
+        shared_xaxes=True, shared_yaxes=False,
+        column_widths=[0.5, 0.5],
+        horizontal_spacing=0.06,
+    )
     fig.add_trace(go.Scattergl(x=raw["datetime"], y=raw["value"], mode="lines", name="原始时序", line={"color": APP_PLOTLY_COLOR, "width": 1}), row=1, col=1)
     fig.add_trace(go.Scattergl(x=auto_qc_data["datetime"], y=auto_qc_data["value"], mode="lines", name="自动质量检查后", line={"color": APP_PLOTLY_HIGHLIGHT, "width": 1}), row=1, col=2)
     y_values = raw["value"].dropna()
     if not y_values.empty:
         y_min, y_max = y_values.min(), y_values.max()
-        margin = max((y_max - y_min) * 0.05, 1e-6)
-        fig.update_yaxes(range=[y_min - margin, y_max + margin])
-    fig.update_layout(yaxis_title=f"{name}({unit})")
-    fig.update_xaxes(title_text="日期", tickformat="%Y/%m/%d")
+        y_margin = max((y_max - y_min) * 0.05, 1e-6)
+        y_range = [y_min - y_margin, y_max + y_margin]
+        fig.update_yaxes(range=y_range, row=1, col=1)
+        fig.update_yaxes(range=y_range, row=1, col=2)
+    fig.update_xaxes(title_text="日期", tickformat="%Y/%m/%d", row=1, col=1)
+    fig.update_xaxes(title_text="日期", tickformat="%Y/%m/%d", row=1, col=2)
+    fig.update_yaxes(title_text=f"{name}({unit})", row=1, col=1)
+    fig.update_yaxes(title_text=f"{name}({unit})", row=1, col=2)
     _apply_figure_visual_style(fig, show_legend=False)
     return fig
 
@@ -943,15 +963,12 @@ def _refresh_station_report_title():
 def _render_station_task_info(variable_keys):
     has_site_name = bool(st.session_state.get("station_task:site_name", "").strip())
     with st.expander("站点任务信息", expanded=not has_site_name):
-        st.caption("填写本次站点任务的基础信息，内容将用于正式报告标题和封面信息。")
         if "station_task:report_title" not in st.session_state:
             _refresh_station_report_title()
-        c1, c2 = st.columns(2)
-        site_name = c1.text_input("站点名称 *", key="station_task:site_name", on_change=_refresh_station_report_title)
-        project_name = c2.text_input("项目名称", key="station_task:project_name")
-        c3, c4 = st.columns(2)
-        department = c3.text_input("编制部门", key="station_task:department")
-        author = c4.text_input("编制人", key="station_task:author")
+        site_name = st.text_input("站点名称", key="station_task:site_name", on_change=_refresh_station_report_title)
+        project_name = st.text_input("项目名称", key="station_task:project_name")
+        department = st.text_input("编制部门", key="station_task:department")
+        author = st.text_input("编制人", key="station_task:author")
         report_title = st.text_input("站点综合报告标题", key="station_task:report_title")
     info = {
         "site_name": site_name,
@@ -1100,7 +1117,7 @@ def _render_station_task_completion(variable_keys, uploads, enable_range, enable
     with st.expander("详细任务状态", expanded=False):
         st.dataframe(_display_task_status_table(table), use_container_width=True, hide_index=True)
     with st.container(border=True):
-        st.subheader("综合结果导出")
+        st.caption("综合结果导出")
         st.caption("全部变量完成质量确认后，可生成站点综合 Excel 和综合报告。")
         export_key = "station_task:summary_excel_bytes"
         if st.button("生成站点综合 Excel", disabled=not progress["可生成站点综合 Excel"], type="primary"):
@@ -1125,7 +1142,7 @@ def _render_single_variable_report_entry(
 ):
     """Render the small report entry point after analysis, keeping generation out of app.py."""
     with st.container(border=True):
-        st.subheader("变量分析报告")
+        st.caption("变量分析报告")
         st.caption("报告基于当前变量已确认的最终质量控制结果生成。")
         confirmed, status = _confirmed_asset_status(
             variable_key, uploaded_file, enable_range, enable_hampel, enable_constant, current_context,
@@ -1149,7 +1166,7 @@ def _render_single_variable_report_entry(
                 )
                 st.session_state[report_key] = generate_single_variable_report(context)
                 st.session_state[_state_key(variable_key, "word_report_filename")] = _safe_report_filename(context["project_info"]["report_title"])
-                st.success("变量分析报告已生成。")
+                st.caption("变量分析报告已生成。")
             except Exception as exc:
                 st.error(f"变量分析报告生成失败：{exc}")
         if report_key in st.session_state:
@@ -1163,6 +1180,29 @@ def main():
     variable_keys = list(list_enabled_variables())
     uploads = {}
     with st.sidebar:
+        # === 1. Product brand ===
+        st.markdown("""
+<div class="sidebar-brand">
+    <div class="sidebar-brand-mark">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#1a3650" stroke-width="1.8" fill="#f5f6f8"/>
+            <path d="M8 18 L12 8 L16 18 M10 14 L14 14" stroke="#1a3650" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </div>
+    <div class="sidebar-brand__text">
+        <div class="sidebar-brand__name">环境监测工作台</div>
+        <div class="sidebar-brand__tagline">数据质控与分析</div>
+    </div>
+</div>
+<style>
+.sidebar-brand { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.8rem 0; }
+.sidebar-brand-mark { flex-shrink: 0; }
+.sidebar-brand__name { font-size: 0.95rem; font-weight: 700; color: #1a3650; line-height: 1.15; }
+.sidebar-brand__tagline { font-size: 0.75rem; color: #59636e; }
+</style>
+""", unsafe_allow_html=True)
+
+        # === 2. Current variable ===
         st.markdown("### 当前处理变量")
         variable_key = st.selectbox("变量选择", variable_keys, format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
         selected_metadata = get_variable_metadata(variable_key)
@@ -1173,6 +1213,10 @@ def main():
         else:
             st.caption("待完成质量确认")
 
+        # === 3. Station task info ===
+        station_info = _render_station_task_info(variable_keys)
+
+        # === 4. File upload ===
         uploaded_count = sum(st.session_state.get(f"{key}_upload") is not None for key in variable_keys)
         with st.expander(f"监测数据上传（{uploaded_count} / {len(variable_keys)}）", expanded=uploaded_count < len(variable_keys)):
             st.caption("请上传各监测变量 Excel 文件。")
@@ -1185,6 +1229,7 @@ def main():
                 else:
                     st.caption("未上传")
 
+        # === 5. Time range ===
         st.markdown("### 分析时间范围")
         st.caption("时间范围仅作用于当前选择变量。")
         analysis_range_slot = st.empty()
@@ -1195,17 +1240,69 @@ def main():
     enable_constant = True
     st.session_state["current_variable_key"] = variable_key
 
-    _render_product_header(variable_keys, uploads)
-    station_info = _render_station_task_info(variable_keys)
+    current_variable_metadata = get_variable_metadata(variable_key)
+    current_variable_name = current_variable_metadata.get("display_name_cn", variable_key)
+    uploaded = uploads.get(variable_key)
+
+    # === Main area: compact top bar ===
+    site_name_top = escape(str(st.session_state.get("station_task:site_name", "").strip()) or "未命名站点")
+    uploaded_count_top = sum(upload is not None for upload in uploads.values())
+    st.markdown(f"""
+    <div class="app-topbar">
+        <span class="app-topbar__task">{site_name_top}监测数据任务</span>
+        <span class="app-topbar__sep">│</span>
+        <span class="app-topbar__meta">当前变量：{current_variable_name}</span>
+        <span class="app-topbar__sep">│</span>
+        <span class="app-topbar__meta">已上传 {uploaded_count_top} / {len(variable_keys)}</span>
+        <span class="app-topbar__sep">│</span>
+        <span class="app-topbar__meta">V4.2</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # === Stage process strip (static, based on variable state) ===
+    stage = "01"
+    if uploaded is not None:
+        if st.session_state.get(_state_key(variable_key, "qc_confirmed"), False):
+            stage = "03"
+        else:
+            stage = "02"
+    stages_html = "".join([
+        f'<span class="process-step{" process-step--active" if s == stage else ""}">{s} {label}</span>'
+        f'<span class="process-step__sep">·</span>' if s != "04" else ""
+        for s, label in [("01", "任务与数据"), ("02", "质量控制"), ("03", "统计分析"), ("04", "报告交付")]
+    ])
+    st.markdown(f"""
+    <div class="process-strip">{stages_html}</div>
+    """, unsafe_allow_html=True)
+
+    # === Workspace 01: Task & Data ===
+    st.markdown("""
+    <div class="workspace-header">
+        <div class="workspace-header__inner">
+            <span class="workspace-index">01</span>
+            <div class="workspace-header__text">
+                <span class="workspace-title">任务与数据</span>
+                <span class="workspace-description">站点资料与九变量处理进度</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     _render_station_task_overview(
         variable_keys, uploads, enable_range, enable_hampel, enable_constant,
         station_info, variable_key,
     )
 
-    uploaded = uploads.get(variable_key)
-    current_variable_metadata = get_variable_metadata(variable_key)
-    current_variable_name = current_variable_metadata.get("display_name_cn", variable_key)
-    st.header(f"{current_variable_name}变量工作区")
+    st.markdown(f"""
+    <div class="workspace-header">
+        <div class="workspace-header__inner">
+            <span class="workspace-index">02</span>
+            <div class="workspace-header__text">
+                <span class="workspace-title">质量控制 &middot; {current_variable_name}</span>
+                <span class="workspace-description">对当前变量数据执行自动质量检查与人工异常确认。</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     if uploaded is None:
         _, _, station_progress = _build_station_task_progress(
             variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info,
@@ -1370,8 +1467,9 @@ def main():
         st.caption("左图显示待人工确认异常；当前复核时间范围内的原始记录可点选、框选或套索选择。右图为最终质量控制结果实时预览。")
         left, right = st.columns(2)
         with left:
+            st.caption(f"{current_variable_name}待人工确认异常")
             qc_candidate_fig = create_qc_candidate_figure(raw, qc_log, review_table, variable_key, selectable_raw_df=selectable_raw)
-            qc_candidate_fig.update_layout(title=None, margin={"l": 60, "r": 20, "t": 30, "b": 50})
+            qc_candidate_fig.update_layout(title="", height=520, margin={"l": 60, "r": 20, "t": 60, "b": 50})
             _apply_figure_visual_style(qc_candidate_fig, show_legend=True)
             selected_event = st.plotly_chart(
                 qc_candidate_fig,
@@ -1381,10 +1479,10 @@ def main():
                 key=f"{variable_key}_candidate_plot",
             )
         with right:
-            qc_final_fig = create_final_qc_figure(final_qc_data, raw, variable_key, summary_counts["最终缺测数"], summary_counts["最终有效记录数"])
-            qc_final_fig.update_layout(title=None, margin={"l": 60, "r": 20, "t": 10, "b": 50})
-            _apply_figure_visual_style(qc_final_fig, show_legend=False)
             st.caption(f"{current_variable_name}最终质量控制预览：最终缺测 {summary_counts['最终缺测数']}，有效记录 {summary_counts['最终有效记录数']}")
+            qc_final_fig = create_final_qc_figure(final_qc_data, raw, variable_key, summary_counts["最终缺测数"], summary_counts["最终有效记录数"])
+            qc_final_fig.update_layout(title="", height=520, margin={"l": 60, "r": 20, "t": 60, "b": 50})
+            _apply_figure_visual_style(qc_final_fig, show_legend=False)
             st.plotly_chart(
                 qc_final_fig,
                 use_container_width=True,
@@ -1449,7 +1547,17 @@ def main():
             )
             return
 
-        st.header("统计分析结果")
+        st.markdown(f"""
+        <div class="workspace-header">
+            <div class="workspace-header__inner">
+                <span class="workspace-index">03</span>
+                <div class="workspace-header__text">
+                    <span class="workspace-title">统计分析 &middot; {current_variable_name}</span>
+                    <span class="workspace-description">基于已确认的最终质量控制结果，查看小时、日内和月度统计特征。</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         resampled, anomaly, metrics, basic_row = _run_after_qc(variable_key, final_qc_data, qc_summary)
         hourly = resampled["hourly"]
         daily = resampled["daily"]
@@ -1475,13 +1583,23 @@ def main():
             st.dataframe(_display_table(basic_df), use_container_width=True)
             st.download_button("下载当前变量统计结果 CSV", basic_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"), f"{variable_key}_statistics.csv", "text/csv")
 
-        st.header("报告与结果导出")
-        st.subheader("当前变量报告")
+        st.markdown("""
+        <div class="workspace-header">
+            <div class="workspace-header__inner">
+                <span class="workspace-index">04</span>
+                <div class="workspace-header__text">
+                    <span class="workspace-title">报告交付</span>
+                    <span class="workspace-description">生成当前变量的分析报告和站点综合导出结果。</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("当前变量报告")
         _render_single_variable_report_entry(
             variable_key, uploads[variable_key], enable_range, enable_hampel, enable_constant,
             current_context, raw, resampled, anomaly, metrics, station_info,
         )
-        st.subheader("站点综合结果")
+        st.caption("站点综合结果")
         _render_station_task_completion(
             variable_keys, uploads, enable_range, enable_hampel, enable_constant, station_info, current_context,
         )
