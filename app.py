@@ -1266,11 +1266,11 @@ def main():
             stage = "03"
         else:
             stage = "02"
-    stages_html = "".join([
+    stages_html = "".join(
         f'<span class="process-step{" process-step--active" if s == stage else ""}">{s} {label}</span>'
-        f'<span class="process-step__sep">·</span>' if s != "04" else ""
+        + (f'<span class="process-step__sep">·</span>' if s != "04" else "")
         for s, label in [("01", "任务与数据"), ("02", "质量控制"), ("03", "统计分析"), ("04", "报告交付")]
-    ])
+    )
     st.markdown(f"""
     <div class="process-strip">{stages_html}</div>
     """, unsafe_allow_html=True)
@@ -1397,7 +1397,7 @@ def main():
         sc2.metric("原始缺测", h_missing)
         sc3.metric("自动删除", h_auto_removed)
         sc4.metric("待确认异常", h_flagged)
-        sc5.metric("有效记录数", h_valid)
+        sc5.metric("自动检查后有效记录数", h_valid)
         sc6.metric("时间范围", h_time[:10] + "…" if len(h_time) > 14 else h_time)
         st.caption("系统默认执行：合理范围检测、Hampel 异常检测、连续恒定值检测。")
         with st.expander("完整质量检查明细", expanded=False):
