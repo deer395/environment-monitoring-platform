@@ -92,38 +92,99 @@ def _comparison_text(source, interpretation, unit):
     return opening
 
 
+REPORT_FIGURE_DPI = 300
+REPORT_FIGURE_FACE = "#ffffff"
+REPORT_GRID_COLOR = "#d9e0e6"
+REPORT_RAW_COLOR = "#425a70"
+REPORT_FINAL_COLOR = "#a33a3a"
+
+
+def _style_report_axis(ax, title, ylabel, xlabel="时间", legend=False):
+    """Apply print-oriented visual styling without changing plotted data."""
+    ax.set_facecolor(REPORT_FIGURE_FACE)
+    ax.set_title(title, fontsize=15, fontweight="semibold", color="#173b5c", pad=10, loc="left")
+    ax.set_ylabel(ylabel, fontsize=11, color="#273746")
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=11, color="#273746")
+    ax.tick_params(axis="both", labelsize=9, colors="#4d5b67")
+    ax.grid(True, color=REPORT_GRID_COLOR, linewidth=.65, alpha=.9)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#aebbc6")
+    ax.spines["bottom"].set_color("#aebbc6")
+    if legend:
+        ax.legend(frameon=False, fontsize=9, loc="upper right")
+
+
 def _figure(fig):
-    output = BytesIO(); fig.tight_layout(); fig.savefig(output, format="png", dpi=180, bbox_inches="tight"); plt.close(fig); output.seek(0); return output
+    output = BytesIO()
+    fig.patch.set_facecolor(REPORT_FIGURE_FACE)
+    fig.tight_layout(pad=1.2)
+    fig.savefig(output, format="png", dpi=REPORT_FIGURE_DPI, bbox_inches="tight", facecolor=REPORT_FIGURE_FACE)
+    plt.close(fig)
+    output.seek(0)
+    return output
 
 
 def _comparison_figure(raw, final, name, unit):
-    fig, axes = plt.subplots(2, 1, figsize=(10.5, 6.6), sharex=True)
+    """Keep the original/final two-panel evidence view with aligned time bounds."""
+    fig, axes = plt.subplots(2, 1, figsize=(10.5, 7.2), sharex=True)
     raw_values = pd.to_numeric(raw.get("value"), errors="coerce")
     final_values = pd.to_numeric(final.get("value"), errors="coerce")
-    for ax, data, values, label, color in ((axes[0], raw, raw_values, "原始数据", "#777777"), (axes[1], final, final_values, "最终质控数据", "#c62828")):
-        ax.plot(pd.to_datetime(data.get("datetime"), errors="coerce"), values, color=color, linewidth=.8)
-        ax.set_ylabel(f"{name} ({unit})"); ax.set_title(label); ax.grid(True, alpha=.3)
-    clean = final_values.dropna()
-    if not clean.empty:
-        low, high = clean.quantile([.01, .99]); margin = max((high - low) * .1, 1e-6)
-        axes[1].set_ylim(low - margin, high + margin)
-    axes[1].xaxis.set_major_locator(mdates.AutoDateLocator()); axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m/%d")); fig.autofmt_xdate()
+    raw_times = pd.to_datetime(raw.get("datetime"), errors="coerce")
+    final_times = pd.to_datetime(final.get("datetime"), errors="coerce")
+    axes[0].plot(raw_times, raw_values, color=REPORT_RAW_COLOR, linewidth=.75, label="原始数据")
+    axes[1].plot(final_times, final_values, color=REPORT_FINAL_COLOR, linewidth=.85, label="最终质控数据")
+    _style_report_axis(axes[0], "原始数据", f"{name} ({unit})", xlabel="", legend=True)
+    _style_report_axis(axes[1], "最终质量控制数据", f"{name} ({unit})", legend=True)
+    all_times = pd.concat([raw_times, final_times]).dropna()
+    if not all_times.empty:
+        axes[0].set_xlim(all_times.min(), all_times.max())
+    axes[1].xaxis.set_major_locator(mdates.AutoDateLocator())
+    axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%Y/%m/%d"))
+    fig.autofmt_xdate(rotation=20, ha="right")
+    fig.subplots_adjust(hspace=.34)
     return _figure(fig)
 
 
 def _hourly_daily_figure(hourly, daily, name, unit):
-    fig, ax = plt.subplots(figsize=(10.5, 4.4)); ax.plot(hourly.get("datetime"), hourly.get("value"), label="小时平均", linewidth=.8); ax.plot(daily.get("datetime"), daily.get("value"), label="日平均", linewidth=1.8, color="#d62728"); ax.set_ylabel(f"{name} ({unit})"); ax.grid(True, alpha=.3); ax.legend(); fig.autofmt_xdate(); return _figure(fig)
+    fig, ax = plt.subplots(figsize=(10.5, 4.6))
+    ax.plot(hourly.get("datetime"), hourly.get("value"), label="小时平均", linewidth=.8, color=REPORT_RAW_COLOR)
+    ax.plot(daily.get("datetime"), daily.get("value"), label="日平均", linewidth=1.5, color=REPORT_FINAL_COLOR)
+    _style_report_axis(ax, "小时平均与日平均", f"{name} ({unit})", legend=True)
+    fig.autofmt_xdate(rotation=20, ha="right")
+    return _figure(fig)
 
 
 def _anomaly_figure(anomaly, name, unit):
-    fig, ax = plt.subplots(figsize=(10.5, 4.4)); ax.plot(anomaly.get("datetime"), anomaly.get("anomaly"), linewidth=.8); ax.axhline(0, color="#333", linewidth=.8); ax.set_ylabel(f"{name}日内距平 ({unit})"); ax.grid(True, alpha=.3); fig.autofmt_xdate(); return _figure(fig)
+    fig, ax = plt.subplots(figsize=(10.5, 4.6))
+    ax.plot(anomaly.get("datetime"), anomaly.get("anomaly"), linewidth=.8, color=REPORT_RAW_COLOR)
+    ax.axhline(0, color="#71808d", linewidth=.8)
+    _style_report_axis(ax, "日内距平", f"{name}日内距平 ({unit})")
+    fig.autofmt_xdate(rotation=20, ha="right")
+    return _figure(fig)
 
 
 def _monthly_figure(monthly, name, unit):
-    fig, ax = plt.subplots(figsize=(10.5, 4.4)); data = monthly.dropna(subset=["monthly_mean"]) if monthly is not None else pd.DataFrame()
-    if not data.empty: ax.errorbar(data["year_month"].astype(str), data["monthly_mean"], yerr=data["monthly_std"].fillna(0), marker="o", capsize=3, color="#d62728")
-    ax.set_ylabel(f"{name} ({unit})"); ax.set_xlabel("年月"); ax.grid(True, alpha=.3); ax.tick_params(axis="x", rotation=30); return _figure(fig)
+    fig, ax = plt.subplots(figsize=(10.5, 4.6))
+    data = monthly.dropna(subset=["monthly_mean"]) if monthly is not None else pd.DataFrame()
+    if not data.empty:
+        ax.errorbar(data["year_month"].astype(str), data["monthly_mean"], yerr=data["monthly_std"].fillna(0), marker="o", markersize=4, capsize=3, linewidth=1.1, color=REPORT_FINAL_COLOR)
+    _style_report_axis(ax, "月平均与标准差", f"{name} ({unit})", xlabel="年月")
+    ax.tick_params(axis="x", rotation=20)
+    return _figure(fig)
 
+def _format_body_paragraph(paragraph, font_size, *, line_spacing=None, space_after=None):
+    """Format ordinary report prose with a two-Chinese-character first-line indent."""
+    fmt = paragraph.paragraph_format
+    fmt.first_line_indent = Pt(font_size * 2)
+    fmt.left_indent = Pt(0)
+    fmt.right_indent = Pt(0)
+    if line_spacing is not None:
+        fmt.line_spacing = line_spacing
+    if space_after is not None:
+        fmt.space_after = space_after
+    return paragraph
 
 def _set_table_run_fonts(run, bold=False, size=9):
     """Apply the report's bilingual font mapping to a table run."""
@@ -249,28 +310,28 @@ def generate_single_variable_report(context):
     if not context.get("software_info", {}).get("qc_confirmed"):
         raise ValueError("请先确认最终质控结果，再生成报告。")
     doc = Document(); section = doc.sections[0]; section.page_width = Cm(21); section.page_height = Cm(29.7); section.left_margin = section.right_margin = Cm(2.2)
-    styles = doc.styles; styles["Normal"].font.name = "宋体"; styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体"); styles["Normal"].font.size = Pt(10.5)
+    styles = doc.styles; styles["Normal"].font.name = "宋体"; styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体"); styles["Normal"].font.size = Pt(10.5); styles["Normal"].paragraph_format.first_line_indent = Pt(0); styles["Normal"].paragraph_format.left_indent = Pt(0); styles["Normal"].paragraph_format.right_indent = Pt(0)
     footer = section.footer.paragraphs[0]; footer.alignment = WD_ALIGN_PARAGRAPH.CENTER; _page_number(footer)
     project, variable, data, qc, stats, features, params, software = (context[k] for k in ("project_info", "variable_info", "data_summary", "qc_summary", "statistics", "time_features", "parameters", "software_info"))
     name, unit = variable["display_name"], variable["unit"]
 
     doc.add_paragraph(project["report_title"], style="Title").alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for label, value in (("站点名称", project.get("site_name", "")), ("项目名称", project.get("project_name", "")), ("当前变量", f"{name}（{unit}）"), ("监测时间范围", f"{_date(data['start_time'])} 至 {_date(data['end_time'])}"), ("编制部门", project.get("department", "")), ("编制人", project["author"]), ("报告生成日期", _date(software["generated_at"])), ("软件版本", software["software_version"])):
+    for label, value in (("站点名称", project.get("site_name", "")), ("项目名称", project.get("project_name", "")), ("当前变量", f"{name}（{unit}）"), ("监测时间范围", f"{_date(data['start_time'])} 至 {_date(data['end_time'])}"), ("编制部门", project.get("department", "")), ("编制人", project["author"]), ("报告生成日期", _date(software["generated_at"])), ("业务内核版本", software["software_version"]), ("业务基线标签", software["git_tag"])):
         if value: doc.add_paragraph(f"{label}：{value}")
     doc.add_page_break()
 
     _add_heading(doc, "1. 数据摘要")
     summary = f"本次{name}监测数据共包含{data['raw_count']}条记录，监测时间为{_date(data['start_time'])}至{_date(data['end_time'])}，日历覆盖{_fmt(data.get('calendar_days'), 0)}天，实际有数据{_fmt(data.get('actual_data_days'), 0)}天，中位采样间隔为{_fmt(data['median_sampling_interval_minutes'], 2)}分钟。经自动质控和人工复核后，最终保留{data['final_valid_count']}条有效记录，最终有效率为{_fmt(data['valid_rate'], 2)}%。"
-    doc.add_paragraph(summary)
+    _format_body_paragraph(doc.add_paragraph(summary), 10.5)
     _table(doc, "表1 数据摘要", ["项目", "结果"], [("变量名称", name), ("单位", unit), ("监测开始时间", _date(data["start_time"])), ("监测结束时间", _date(data["end_time"])), ("日历覆盖天数", _fmt(data.get("calendar_days"), 0)), ("实际有数据天数", _fmt(data.get("actual_data_days"), 0)), ("日期覆盖率", f"{_fmt(data.get('date_coverage_rate'), 2)}%"), ("中位采样间隔（分钟）", _fmt(data["median_sampling_interval_minutes"], 2)), ("原始记录数", data["raw_count"]), ("最终有效记录数", data["final_valid_count"]), ("最终有效率", f"{_fmt(data['valid_rate'], 2)}%")])
 
-    _add_heading(doc, "2. 数据质控与前后对比"); doc.add_paragraph("本次数据依次进行了原始缺测识别、传感器零值处理、硬范围检查、Hampel异常候选识别、连续恒定值识别和人工复核。传感器零值及超出硬范围的记录自动剔除，Hampel和恒定值结果仅作为候选，由人工确认后形成最终质控数据。")
-    doc.add_paragraph(_qc_text(data, qc))
+    _add_heading(doc, "2. 数据质控与前后对比"); _format_body_paragraph(doc.add_paragraph("本次数据依次进行了原始缺测识别、传感器零值处理、硬范围检查、Hampel异常候选识别、连续恒定值识别和人工复核。传感器零值及超出硬范围的记录自动剔除，Hampel和恒定值结果仅作为候选，由人工确认后形成最终质控数据。"), 10.5)
+    _format_body_paragraph(doc.add_paragraph(_qc_text(data, qc)), 10.5)
     _table(doc, "表2 质控结果", ["质控项目", "数量", "占原始记录比例", "处理方式"], [("原始缺测", data["raw_missing_count"], _pct(data["raw_missing_count"], data["raw_count"]), "识别并保留为缺测"), ("传感器0值", qc.get("removed_by_sensor_zero", 0), _pct(qc.get("removed_by_sensor_zero", 0), data["raw_count"]), "自动剔除"), ("超出硬范围", qc.get("removed_by_range", 0), _pct(qc.get("removed_by_range", 0), data["raw_count"]), "自动剔除"), ("Hampel候选", qc.get("flagged_by_hampel", 0), _pct(qc.get("flagged_by_hampel", 0), data["raw_count"]), "候选标记，人工复核"), ("恒定值候选", qc.get("flagged_by_constant_value", 0), _pct(qc.get("flagged_by_constant_value", 0), data["raw_count"]), "候选标记，人工复核"), ("人工删除", qc.get("manual_remove_count", 0), _pct(qc.get("manual_remove_count", 0), data["raw_count"]), "人工复核决策"), ("最终缺测", data["final_missing_count"], _pct(data["final_missing_count"], data["raw_count"]), "最终结果"), ("最终有效记录", data["final_valid_count"], _pct(data["final_valid_count"], data["raw_count"]), "用于后续分析")])
 
-    source = context["source_data"]; _add_picture(doc, _comparison_figure(source["raw_data"], source["final_qc_data"], name, unit), f"图1 {name}原始数据与最终质控数据对比（上下图纵轴范围分别自适应）"); doc.add_paragraph(_comparison_text(source, features.get("interpretation", {}), unit))
+    source = context["source_data"]; _add_picture(doc, _comparison_figure(source["raw_data"], source["final_qc_data"], name, unit), f"图1 {name}原始数据与最终质控数据对比（上下图纵轴范围分别自适应）"); _format_body_paragraph(doc.add_paragraph(_comparison_text(source, features.get("interpretation", {}), unit)), 10.5)
 
-    _add_heading(doc, "3. 统计特征与时间变化"); doc.add_paragraph("基础统计基于最终质控后的小时平均数据计算。")
+    _add_heading(doc, "3. 统计特征与时间变化"); _format_body_paragraph(doc.add_paragraph("基础统计基于最终质控后的小时平均数据计算。"), 10.5)
     interp = features.get("interpretation", {})
     _table(doc, "表3 统计特征", ["指标", "数值", "单位"], [("最小值", _fmt(stats.get("min")), unit), ("最大值", _fmt(stats.get("max")), unit), ("平均值", _fmt(stats.get("mean")), unit), ("中位数", _fmt(stats.get("median")), unit), ("标准差", _fmt(stats.get("std")), unit), ("P5", _fmt(interp.get("p5")), unit), ("P95", _fmt(interp.get("p95")), unit), ("主体90%范围", f"{_fmt(interp.get('p5'))} 至 {_fmt(interp.get('p95'))}", unit), ("日变化幅度中位数", _fmt(interp.get("daily_range_median")), unit), ("日变化幅度P95", _fmt(interp.get("daily_range_p95")), unit), ("最大日变化幅度", _fmt(interp.get("max_daily_range", stats.get("max_daily_range"))), unit)])
 
@@ -278,7 +339,7 @@ def generate_single_variable_report(context):
     narratives = context.get("narratives", {})
     for narrative_key in ("hourly", "intraday", "monthly"):
         if narratives.get(narrative_key):
-            doc.add_paragraph(narratives[narrative_key])
+            _format_body_paragraph(doc.add_paragraph(narratives[narrative_key]), 10.5)
 
     interpretation = features.get("interpretation", {}); mode_text = {"trend_up": "总体呈上升趋势", "trend_down": "总体呈下降趋势", "decrease_then_increase": "呈先下降后上升变化", "increase_then_decrease": "呈先上升后下降变化", "stable": "总体较为稳定", "change_point": f"在{_month(interpretation.get('change_time')) if interpretation.get('change_time') else '观测期内'}前后出现明显水平{MODE_LABELS.get(interpretation.get('change_direction'), '变化')}"}.get(interpretation.get("narrative_mode"), "总体较为稳定")
     # The three context narratives above are the sole report analysis block and precede all figures.
@@ -301,7 +362,7 @@ def generate_single_variable_report(context):
     if ranges is not None and not ranges.empty and ranges["daily_range"].notna().any():
         pass
 
-    _add_heading(doc, "4. 结论"); doc.add_paragraph(f"本次{name}监测数据原始记录数为{data['raw_count']}条，已完成自动质控与人工复核，最终保留{data['final_valid_count']}条有效记录，有效率为{_fmt(data['valid_rate'], 2)}%。传感器零值处理{qc.get('removed_by_sensor_zero', 0)}条，超出硬范围处理{qc.get('removed_by_range', 0)}条，人工删除{qc.get('manual_remove_count', 0)}条，相关过程可通过QC日志追溯。")
+    _add_heading(doc, "4. 结论"); _format_body_paragraph(doc.add_paragraph(f"本次{name}监测数据原始记录数为{data['raw_count']}条，已完成自动质控与人工复核，最终保留{data['final_valid_count']}条有效记录，有效率为{_fmt(data['valid_rate'], 2)}%。传感器零值处理{qc.get('removed_by_sensor_zero', 0)}条，超出硬范围处理{qc.get('removed_by_range', 0)}条，人工删除{qc.get('manual_remove_count', 0)}条，相关过程可通过QC日志追溯。"), 10.5)
     main_fact = {"change_point": f"{_month(interpretation['change_time']) if interpretation.get('change_time') else '观测期内'}前后出现明显水平{MODE_LABELS.get(interpretation.get('change_direction'), '变化')}", "trend_up": "总体呈上升趋势", "trend_down": "总体呈下降趋势", "decrease_then_increase": "呈先下降后上升变化", "increase_then_decrease": "呈先上升后下降变化"}.get(interpretation.get("narrative_mode"), "总体较为稳定")
     primary = interpretation.get("primary_mode", interpretation.get("narrative_mode"))
     monthly_info = interpretation.get("monthly_interpretation", {})
@@ -317,10 +378,10 @@ def generate_single_variable_report(context):
     else:
         conclusion = f"观测期内该变量{main_fact}。"
         if monthly_info.get("monthly_max_month") is not None: conclusion += f"月平均最高值出现在{_month(monthly_info['monthly_max_month'])}。"
-    doc.add_paragraph(conclusion)
+    _format_body_paragraph(doc.add_paragraph(conclusion), 10.5)
 
     _add_heading(doc, "附录A：质控参数"); _table(doc, "表A-1 质控参数", ["参数", "值"], [("sensor_zero 是否启用", "是" if params["sensor_zero_enabled"] else "否"), ("hard_min", _fmt(params["hard_min"])), ("hard_max", _fmt(params["hard_max"])), ("Hampel窗口", _fmt(params["hampel_window"])), ("Hampel阈值", _fmt(params["hampel_threshold"])), ("Hampel最小绝对偏差", _fmt(params["hampel_min_abs_deviation"])), ("恒定值窗口", _fmt(params["constant_value_window"])), ("恒定值容差", _fmt(params["constant_value_tolerance"]))])
-    _add_heading(doc, "附录B：处理信息"); _table(doc, "表B-1 处理信息", ["项目", "值"], [("variable_key", variable["variable_key"]), ("数据时间范围", f"{_date(data['start_time'])} 至 {_date(data['end_time'])}"), ("当前人工确认状态", "已确认"), ("报告生成时间", _date(software["generated_at"])), ("软件版本", software["software_version"]), ("Git标签", software["git_tag"])])
-    _add_heading(doc, "附录C：日志说明"); doc.add_paragraph("完整逐点质控记录请参见系统导出的 final_qc_log.xlsx。")
-    doc.add_paragraph("说明：传感器精确0值按照当前项目规则作为无效值处理；hard_range 按项目变量配置执行。")
+    _add_heading(doc, "附录B：处理信息"); _table(doc, "表B-1 处理信息", ["项目", "值"], [("variable_key", variable["variable_key"]), ("数据时间范围", f"{_date(data['start_time'])} 至 {_date(data['end_time'])}"), ("当前人工确认状态", "已确认"), ("报告生成时间", _date(software["generated_at"])), ("业务内核版本", software["software_version"]), ("业务基线标签", software["git_tag"])])
+    _add_heading(doc, "附录C：日志说明"); _format_body_paragraph(doc.add_paragraph("完整逐点质控记录请参见系统导出的 final_qc_log.xlsx。"), 10.5)
+    _format_body_paragraph(doc.add_paragraph("说明：传感器精确0值按照当前项目规则作为无效值处理；hard_range 按项目变量配置执行。"), 10.5)
     output = BytesIO(); doc.save(output); return output.getvalue()

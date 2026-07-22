@@ -43,6 +43,7 @@ from src.station_task import (
     clear_station_export_caches,
     clear_variable_result_caches,
     default_station_report_title,
+    invalidate_report_template_cache,
     require_station_export,
     station_info_signature,
 )
@@ -50,6 +51,11 @@ from src.station_report_context import build_station_report_context
 from src.station_word_report import generate_station_word_report
 from src.variable_registry import VARIABLE_REGISTRY, get_variable_metadata, list_enabled_variables
 from src.word_report import generate_single_variable_report
+from src.version import (
+    BUSINESS_CORE_VERSION,
+    SINGLE_VARIABLE_REPORT_TEMPLATE_VERSION,
+    STATION_WORD_REPORT_TEMPLATE_VERSION,
+)
 
 DATA_DIR = PROJECT_ROOT / "data_private"
 DEFAULT_FILES = {
@@ -318,6 +324,47 @@ def _inject_visual_styles():
                 font-size: 0.78rem; padding: 0.3rem 0.55rem;
             }
         }
+
+        /* === V5.4 enterprise workspace shell overrides === */
+        :root { --app-navy:#173b5c; --app-blue:#2f6f9f; --app-blue-soft:#e7f3f7; --app-border:#dde4ea; --app-muted:#657383; --app-surface:#fff; --app-bg:#f4f7f8; --app-surface-soft:#f8fafb; --app-teal:#4d97a8; --app-radius:8px; --app-radius-sm:5px; --app-shadow:0 1px 2px rgba(19,48,73,.05),0 5px 16px rgba(19,48,73,.035); }
+        .block-container { max-width:1480px; padding-top:.9rem; }
+        .app-topbar { background:var(--app-surface); color:var(--app-navy); padding:.65rem 1rem; margin:0 0 .55rem; border:1px solid var(--app-border); border-radius:var(--app-radius); box-shadow:var(--app-shadow); font-size:.82rem; line-height:1.45; display:flex; flex-wrap:wrap; align-items:center; gap:.35rem .75rem; min-height:2.8rem; }
+        .app-topbar__eyebrow { color:var(--app-teal); font-size:.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+        .app-topbar__task { font-weight:700; font-size:.95rem; color:var(--app-navy); } .app-topbar__sep { color:var(--app-border); user-select:none; } .app-topbar__meta { color:var(--app-muted); font-size:.78rem; } .app-topbar__status { margin-left:auto; color:var(--app-navy); background:var(--app-blue-soft); border-radius:999px; padding:.2rem .5rem; font-size:.75rem; font-weight:600; }
+        div[data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--app-border); border-radius:var(--app-radius); box-shadow:var(--app-shadow); }
+        div[data-testid="stSidebar"] { background:#f8fafb; border-right-color:var(--app-border); } div[data-testid="stSidebar"] > div:first-child { padding-top:.55rem; }
+        .sidebar-brand { display:flex; align-items:center; gap:.6rem; margin:0 0 .85rem; padding:.45rem .2rem .7rem; border-bottom:1px solid var(--app-border); } .sidebar-brand-mark { flex-shrink:0; } .sidebar-brand__name { font-size:.95rem; font-weight:700; color:var(--app-navy); line-height:1.15; } .sidebar-brand__tagline { font-size:.72rem; color:var(--app-muted); margin-top:.08rem; }
+        .sidebar-section-label { color:var(--app-muted); font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; margin:.75rem 0 .25rem; } .sidebar-variable-card { border:1px solid #cfe0e6; background:var(--app-blue-soft); border-radius:var(--app-radius-sm); padding:.45rem .55rem; margin:.1rem 0 .45rem; } .sidebar-variable-card__name { color:var(--app-navy); font-size:.88rem; font-weight:700; } .sidebar-variable-card__meta { color:var(--app-muted); font-size:.72rem; margin-top:.12rem; } .sidebar-variable-card__status { color:var(--app-success); font-size:.72rem; margin-top:.25rem; } .sidebar-variable-card__status--pending { color:var(--app-warning); } div[data-testid="stSidebar"] div[data-testid="stExpander"] { box-shadow:none; margin-top:.2rem; }
+        .task-overview { border:1px solid var(--app-border); border-radius:var(--app-radius); background:var(--app-surface); box-shadow:var(--app-shadow); padding:.9rem 1rem .8rem; margin:0 0 .55rem; } .task-overview__heading { display:flex; justify-content:space-between; align-items:baseline; gap:.75rem; margin-bottom:.7rem; } .task-overview__title { color:var(--app-navy); font-size:1rem; font-weight:700; } .task-overview__caption { color:var(--app-muted); font-size:.75rem; }
+        .task-kpi-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.55rem; margin-bottom:.65rem; } .task-kpi { min-width:0; border:1px solid var(--app-border); border-radius:var(--app-radius-sm); background:var(--app-surface-soft); padding:.55rem .65rem; } .task-kpi--accent { background:var(--app-blue-soft); border-color:#cde2e8; } .task-kpi__label { color:var(--app-muted); font-size:.72rem; font-weight:600; } .task-kpi__value { color:var(--app-navy); font-size:1.15rem; font-weight:700; line-height:1.3; margin-top:.12rem; } .task-kpi__value--ready { color:var(--app-success); } .task-kpi__value--pending { color:var(--app-warning); }
+        .task-overview__section-label { color:var(--app-navy); font-size:.78rem; font-weight:700; margin:.25rem 0 .35rem; } .task-stage-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.35rem .45rem; } .task-stage { display:flex; align-items:center; min-width:0; gap:.35rem; background:var(--app-surface-soft); border-radius:4px; padding:.3rem .42rem; color:var(--app-muted); font-size:.75rem; } .task-stage__name { color:var(--app-navy); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .task-stage__status { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .task-stage__dot { width:.42rem; height:.42rem; flex:0 0 auto; border-radius:999px; background:#aeb9c3; } .task-stage--done .task-stage__dot { background:var(--app-success); } .task-stage--review .task-stage__dot,.task-stage--confirm .task-stage__dot { background:#c79a20; } .task-stage--checking .task-stage__dot { background:var(--app-blue); }
+        @media (max-width:1024px) { .app-topbar__status { margin-left:0; } .task-kpi-grid { grid-template-columns:1fr; } .task-stage-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }        /* === V5.4.1 hierarchy corrections === */
+        .block-container { max-width: 1540px; padding: 1rem 1.15rem 3rem; }
+        .app-topbar { min-height: auto; padding: .7rem 1rem; gap: .35rem .7rem; overflow: visible; }
+        .app-topbar__task { font-size: 1rem; line-height: 1.45; } .app-topbar__meta { font-size: .8rem; line-height: 1.45; } .app-topbar__status { white-space: nowrap; }
+        div[data-testid="stSidebar"] > div:first-child { padding-top: .25rem; }
+        .sidebar-brand { padding: .3rem .15rem .65rem; margin-bottom: .7rem; } .sidebar-brand__name { font-size: 1.18rem; line-height: 1.2; } .sidebar-brand__tagline { font-size: .78rem; }
+        .process-strip { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; text-align: left; padding: .45rem 0 .65rem; margin-bottom: 1.3rem; }
+        .process-strip__label { color: var(--app-muted); font-size: .76rem; font-weight: 700; letter-spacing: .04em; margin-right: .25rem; }
+        .process-step { font-size: .9rem; padding: .16rem .05rem .28rem; border-bottom: 2px solid transparent; }
+        .process-step--active { color: var(--app-navy); font-weight: 700; border-bottom-color: var(--app-navy); }
+        .process-step--complete { color: var(--app-blue); font-weight: 600; }
+        .process-step--available { color: var(--app-blue); font-weight: 600; border-bottom-color: #bcd8e2; }
+        .process-step__sep { color: #b6c0c8; margin: 0 .2rem; }
+        .workspace-header { margin: 2.45rem 0 1.15rem; padding-top: 1rem; }
+        .workspace-header__inner { gap: .7rem; align-items: center; } .workspace-index { font-size: 1.2rem; padding: .18rem .5rem; }
+        .workspace-title { font-size: 1.42rem; font-weight: 700; line-height: 1.28; } .workspace-description { font-size: .84rem; margin-top: .15rem; }
+        .workspace-header + div { margin-top: 0; }
+        @media (max-width: 1024px) { .block-container { padding-left: .9rem; padding-right: .9rem; } .workspace-header { margin-top: 2rem; } .workspace-title { font-size: 1.22rem; } .process-step { font-size: .82rem; } }
+        /* Keep Streamlit-generated module headings below the custom workspace tier. */
+        div[data-testid="stHeading"] h2 { font-size: 1.22rem !important; font-weight: 650 !important; }
+        div[data-testid="stHeading"] h3 { font-size: 1.06rem !important; font-weight: 600 !important; }
+        /* P1-01: Streamlit header remains visible; reserve its measured 60px height plus a 36px breathing gap. */
+        :root { --streamlit-header-safe-inset: 96px; }
+        .block-container { padding-top: 0 !important; }
+        div[data-testid="stMainBlockContainer"] { padding: var(--streamlit-header-safe-inset) 1.15rem 3rem 1rem !important; }
+        .app-topbar { position: relative; top: auto; margin-top: 0; transform: none; z-index: auto; height: auto; min-height: auto; overflow: visible; }
+        @media (max-width: 1024px) { div[data-testid="stMainBlockContainer"] { padding-left: .9rem !important; padding-right: .9rem !important; } }
         </style>
         """,
         unsafe_allow_html=True,
@@ -962,7 +1009,7 @@ def _refresh_station_report_title():
 
 def _render_station_task_info(variable_keys):
     has_site_name = bool(st.session_state.get("station_task:site_name", "").strip())
-    with st.expander("站点任务信息", expanded=not has_site_name):
+    with st.expander("站点任务信息", expanded=False):
         if "station_task:report_title" not in st.session_state:
             _refresh_station_report_title()
         site_name = st.text_input("站点名称", key="station_task:site_name", on_change=_refresh_station_report_title)
@@ -1064,42 +1111,63 @@ def _render_station_task_overview(
     current_name = get_variable_metadata(current_variable_key).get("display_name_cn", current_variable_key)
     site_name = str(station_info.get("site_name", "")).strip()
 
-    with st.container(border=True):
-        st.subheader("站点任务概览")
-        upload_col, confirmation_col, report_col = st.columns(3)
-        upload_col.metric("文件上传", f"{uploaded_count} / {total}")
-        confirmation_col.metric("质量确认", f"{confirmed_count} / {total}")
-        report_col.metric("综合报告", "可以生成" if progress["可生成站点综合 Excel"] else "暂不可生成")
-        st.progress(confirmed_count / total if total else 0, text=f"站点任务进度：{confirmed_count} / {total} 个变量完成质量确认")
+    report_ready = progress["可生成站点综合 Excel"]
+    report_label = "可以生成" if report_ready else "暂不可生成"
+    report_class = "task-kpi__value--ready" if report_ready else "task-kpi__value--pending"
+    stage_class_map = {
+        "已完成": "done", "待异常复核": "review", "待质量确认": "confirm",
+        "待质量检查": "checking", "未上传": "idle",
+    }
+    stage_tiles = "".join(
+        f'<div class="task-stage task-stage--{stage_class_map[stages[item_key]]}">'
+        f'<span class="task-stage__dot"></span>'
+        f'<span class="task-stage__name">{escape(str(get_variable_metadata(item_key).get("display_name_cn", item_key)))}</span>'
+        f'<span class="task-stage__status">{escape(stages[item_key])}</span>'
+        f'</div>'
+        for item_key in variable_keys
+    )
+    st.markdown(f"""
+    <section class="task-overview" aria-label="站点任务概览">
+        <div class="task-overview__heading">
+            <span class="task-overview__title">站点任务概览</span>
+            <span class="task-overview__caption">九变量处理进度与综合交付状态</span>
+        </div>
+        <div class="task-kpi-grid">
+            <div class="task-kpi"><div class="task-kpi__label">文件上传</div><div class="task-kpi__value">{uploaded_count} / {total}</div></div>
+            <div class="task-kpi task-kpi--accent"><div class="task-kpi__label">质量确认</div><div class="task-kpi__value">{confirmed_count} / {total}</div></div>
+            <div class="task-kpi"><div class="task-kpi__label">综合报告</div><div class="task-kpi__value {report_class}">{report_label}</div></div>
+        </div>
+    </section>
+    """, unsafe_allow_html=True)
+    st.progress(confirmed_count / total if total else 0, text=f"站点任务进度：{confirmed_count} / {total} 个变量完成质量确认")
+    st.markdown(f"""
+    <div class="task-overview">
+        <div class="task-overview__section-label">九变量状态摘要</div>
+        <div class="task-stage-grid">{stage_tiles}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        st.markdown("**九变量状态摘要**")
-        stage_columns = st.columns(3)
-        for index, item_key in enumerate(variable_keys):
-            metadata = get_variable_metadata(item_key)
-            with stage_columns[index % 3]:
-                st.caption(f"{metadata.get('display_name_cn', item_key)}：{stages[item_key]}")
+    if not site_name:
+        st.caption("任务信息待补充：尚未填写站点名称，生成综合报告前需要补充。")
 
-        if not site_name:
-            st.caption("任务信息待补充：尚未填写站点名称，生成综合报告前需要补充。")
-
-        if uploads.get(current_variable_key) is None:
-            st.info(f"下一步：请上传当前变量“{current_name}”的 Excel 文件。")
-        elif stages[current_variable_key] in {"待质量检查", "待异常复核"}:
-            st.warning(f"下一步：请完成当前变量“{current_name}”的异常确认与人工复核。")
-        elif stages[current_variable_key] == "待质量确认":
-            st.warning(f"下一步：请确认当前变量“{current_name}”的最终质量控制结果。")
-        elif all(stage == "已完成" for stage in stages.values()):
-            if progress["可生成站点综合 Excel"]:
-                st.caption("下一步：九个变量均已完成质量确认，可以生成站点综合结果。")
-            else:
-                st.caption("当前变量任务已完成：九个变量均已完成质量确认。")
+    if uploads.get(current_variable_key) is None:
+        st.info(f"下一步：请上传当前变量“{current_name}”的 Excel 文件。")
+    elif stages[current_variable_key] in {"待质量检查", "待异常复核"}:
+        st.warning(f"下一步：请完成当前变量“{current_name}”的异常确认与人工复核。")
+    elif stages[current_variable_key] == "待质量确认":
+        st.warning(f"下一步：请确认当前变量“{current_name}”的最终质量控制结果。")
+    elif all(stage == "已完成" for stage in stages.values()):
+        if progress["可生成站点综合 Excel"]:
+            st.caption("下一步：九个变量均已完成质量确认，可以生成站点综合结果。")
         else:
-            first_incomplete = next((item_key for item_key in variable_keys if stages[item_key] != "已完成"), None)
-            if first_incomplete:
-                next_name = get_variable_metadata(first_incomplete).get("display_name_cn", first_incomplete)
-                st.info(f"下一步：当前变量已完成，请切换至尚未完成的变量继续处理（{next_name}）。")
-            else:
-                st.info("下一步：请查看综合报告生成条件。")
+            st.caption("当前变量任务已完成：九个变量均已完成质量确认。")
+    else:
+        first_incomplete = next((item_key for item_key in variable_keys if stages[item_key] != "已完成"), None)
+        if first_incomplete:
+            next_name = get_variable_metadata(first_incomplete).get("display_name_cn", first_incomplete)
+            st.info(f"下一步：当前变量已完成，请切换至尚未完成的变量继续处理（{next_name}）。")
+        else:
+            st.info("下一步：请查看综合报告生成条件。")
     return progress
 
 
@@ -1125,15 +1193,25 @@ def _render_station_task_completion(variable_keys, uploads, enable_range, enable
         if export_key in st.session_state and progress["可生成站点综合 Excel"]:
             st.download_button("下载 summary_statistics.xlsx", st.session_state[export_key], "summary_statistics.xlsx")
         word_key = "station_task:station_word_report_bytes"
+        word_filename_key = "station_task:station_word_report_filename"
+        word_template_key = "station_task:station_word_report_template_version"
+        had_cached_word = word_key in st.session_state
+        if invalidate_report_template_cache(
+            st.session_state,
+            word_template_key,
+            STATION_WORD_REPORT_TEMPLATE_VERSION,
+            (word_key, word_filename_key),
+        ) and had_cached_word:
+            st.caption("站点综合报告模板已更新，请重新生成报告。")
         if st.button("生成站点综合报告", disabled=not progress["可生成站点综合 Excel"], type="primary"):
             try:
                 context = build_station_report_context(variable_keys, confirmed_assets, progress, station_info)
                 st.session_state[word_key] = generate_station_word_report(context)
-                st.session_state["station_task:station_word_report_filename"] = _safe_report_filename(station_info.get("report_title", "站点环境监测综合报告"))
+                st.session_state[word_filename_key] = _safe_report_filename(station_info.get("report_title", "站点环境监测综合报告"))
             except Exception as exc:
                 st.error(f"站点综合报告生成失败：{exc}")
         if word_key in st.session_state and progress["可生成站点综合 Excel"]:
-            st.download_button("下载站点综合报告", st.session_state[word_key], st.session_state.get("station_task:station_word_report_filename", "站点环境监测综合报告.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            st.download_button("下载站点综合报告", st.session_state[word_key], st.session_state.get(word_filename_key, "站点环境监测综合报告.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 def _render_single_variable_report_entry(
@@ -1153,6 +1231,14 @@ def _render_single_variable_report_entry(
         metadata = get_variable_metadata(variable_key)
         report_title = f"{station_info.get('site_name', '').strip()} {metadata.get('display_name_cn', variable_key)}监测数据质控与统计分析报告".strip()
         report_key = _state_key(variable_key, "word_report_bytes")
+        report_filename_key = _state_key(variable_key, "word_report_filename")
+        report_template_key = _state_key(variable_key, "word_report_template_version")
+        invalidate_report_template_cache(
+            st.session_state,
+            report_template_key,
+            SINGLE_VARIABLE_REPORT_TEMPLATE_VERSION,
+            (report_key, report_filename_key),
+        )
         if st.button("生成变量分析报告", key=_state_key(variable_key, "generate_word_report"), type="primary"):
             try:
                 context = build_report_context(
@@ -1165,12 +1251,12 @@ def _render_single_variable_report_entry(
                     report_title=report_title, organization=station_info.get("department", ""), author=station_info.get("author", ""),
                 )
                 st.session_state[report_key] = generate_single_variable_report(context)
-                st.session_state[_state_key(variable_key, "word_report_filename")] = _safe_report_filename(context["project_info"]["report_title"])
+                st.session_state[report_filename_key] = _safe_report_filename(context["project_info"]["report_title"])
                 st.caption("变量分析报告已生成。")
             except Exception as exc:
                 st.error(f"变量分析报告生成失败：{exc}")
         if report_key in st.session_state:
-            st.download_button("下载变量分析报告", st.session_state[report_key], st.session_state.get(_state_key(variable_key, "word_report_filename"), "变量分析报告.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            st.download_button("下载变量分析报告", st.session_state[report_key], st.session_state.get(report_filename_key, "变量分析报告.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 def main():
@@ -1184,36 +1270,33 @@ def main():
         st.markdown("""
 <div class="sidebar-brand">
     <div class="sidebar-brand-mark">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#1a3650" stroke-width="1.8" fill="#f5f6f8"/>
-            <path d="M8 18 L12 8 L16 18 M10 14 L14 14" stroke="#1a3650" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="24" height="24" rx="5" stroke="#173b5c" stroke-width="1.8" fill="#e7f3f7"/>
+            <path d="M8 18 L12 8 L16 18 M10 14 L14 14" stroke="#173b5c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
     </div>
     <div class="sidebar-brand__text">
-        <div class="sidebar-brand__name">环境监测工作台</div>
-        <div class="sidebar-brand__tagline">数据质控与分析</div>
+        <div class="sidebar-brand__name">环境监测数据平台</div>
+        <div class="sidebar-brand__tagline">质控与分析工作台</div>
     </div>
 </div>
-<style>
-.sidebar-brand { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.8rem 0; }
-.sidebar-brand-mark { flex-shrink: 0; }
-.sidebar-brand__name { font-size: 0.95rem; font-weight: 700; color: #1a3650; line-height: 1.15; }
-.sidebar-brand__tagline { font-size: 0.75rem; color: #59636e; }
-</style>
 """, unsafe_allow_html=True)
-
         # === 2. Current variable ===
-        st.markdown("### 当前处理变量")
-        variable_key = st.selectbox("变量选择", variable_keys, format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
+        st.markdown('<div class="sidebar-section-label">当前任务</div>', unsafe_allow_html=True)
+        variable_key = st.selectbox("当前处理变量", variable_keys, format_func=lambda x: get_variable_metadata(x)["display_name_cn"])
         selected_metadata = get_variable_metadata(variable_key)
-        st.markdown(f"**{selected_metadata.get('display_name_cn', variable_key)}**")
-        st.caption(f"{variable_key}｜单位：{selected_metadata.get('unit', '未设置')}")
-        if st.session_state.get(_state_key(variable_key, "qc_confirmed"), False):
-            st.caption("已完成质量确认")
-        else:
-            st.caption("待完成质量确认")
-
+        is_confirmed = st.session_state.get(_state_key(variable_key, "qc_confirmed"), False)
+        confirmation_label = "已完成质量确认" if is_confirmed else "待完成质量确认"
+        confirmation_class = "" if is_confirmed else " sidebar-variable-card__status--pending"
+        st.markdown(f"""
+        <div class="sidebar-variable-card">
+            <div class="sidebar-variable-card__name">{escape(selected_metadata.get('display_name_cn', variable_key))}</div>
+            <div class="sidebar-variable-card__meta">{escape(variable_key)} · 单位：{escape(str(selected_metadata.get('unit', '未设置')))}</div>
+            <div class="sidebar-variable-card__status{confirmation_class}">{confirmation_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
         # === 3. Station task info ===
+        st.markdown('<div class="sidebar-section-label">任务资料</div>', unsafe_allow_html=True)
         station_info = _render_station_task_info(variable_keys)
 
         # === 4. File upload ===
@@ -1248,33 +1331,31 @@ def main():
     site_name_top = escape(str(st.session_state.get("station_task:site_name", "").strip()) or "未命名站点")
     uploaded_count_top = sum(upload is not None for upload in uploads.values())
     st.markdown(f"""
-    <div class="app-topbar">
+    <div class="app-topbar" aria-label="当前任务工具栏">
         <span class="app-topbar__task">{site_name_top}监测数据任务</span>
-        <span class="app-topbar__sep">│</span>
-        <span class="app-topbar__meta">当前变量：{current_variable_name}</span>
-        <span class="app-topbar__sep">│</span>
-        <span class="app-topbar__meta">已上传 {uploaded_count_top} / {len(variable_keys)}</span>
-        <span class="app-topbar__sep">│</span>
-        <span class="app-topbar__meta">V4.2</span>
-    </div>
-    """, unsafe_allow_html=True)
+        <span class="app-topbar__sep">·</span>
+        <span class="app-topbar__meta">当前变量：{escape(current_variable_name)}</span>
+        <span class="app-topbar__meta">已上传：{uploaded_count_top} / {len(variable_keys)}</span>
+        <span class="app-topbar__status">业务内核：{BUSINESS_CORE_VERSION}</span>
+    </div>    """, unsafe_allow_html=True)
 
-    # === Stage process strip (static, based on variable state) ===
-    stage = "01"
-    if uploaded is not None:
-        if st.session_state.get(_state_key(variable_key, "qc_confirmed"), False):
-            stage = "03"
-        else:
-            stage = "02"
-    stages_html = "".join(
-        f'<span class="process-step{" process-step--active" if s == stage else ""}">{s} {label}</span>'
-        + (f'<span class="process-step__sep">·</span>' if s != "04" else "")
-        for s, label in [("01", "任务与数据"), ("02", "质量控制"), ("03", "统计分析"), ("04", "报告交付")]
-    )
+    # === Process indicator: display-only, derived from existing task state ===
+    confirmed_variable = bool(st.session_state.get(_state_key(variable_key, "qc_confirmed"), False))
+    active_stage = "01" if uploaded is None else "03" if confirmed_variable else "02"
+    process_steps = []
+    for step_number, label in [("01", "任务与数据"), ("02", "质量控制"), ("03", "统计分析"), ("04", "报告交付")]:
+        step_class = ""
+        if step_number < active_stage:
+            step_class = " process-step--complete"
+        elif step_number == active_stage:
+            step_class = " process-step--active"
+        elif step_number == "04" and confirmed_variable:
+            step_class = " process-step--available"
+        process_steps.append(f'<span class="process-step{step_class}">{step_number} {label}</span>')
+    stages_html = '<span class="process-strip__label">处理流程</span>' + '<span class="process-step__sep">—</span>'.join(process_steps)
     st.markdown(f"""
     <div class="process-strip">{stages_html}</div>
     """, unsafe_allow_html=True)
-
     # === Workspace 01: Task & Data ===
     st.markdown("""
     <div class="workspace-header">

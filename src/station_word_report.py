@@ -13,7 +13,7 @@ from docx.shared import Cm, Pt
 
 from .word_report import (
     _add_heading, _add_picture, _anomaly_figure, _comparison_figure, _date,
-    _fmt, _hourly_daily_figure, _monthly_figure, _page_number, _qc_text,
+    _fmt, _format_body_paragraph, _hourly_daily_figure, _monthly_figure, _page_number, _qc_text,
     _table, _value_unit,
 )
 from .manual_qc import summarize_candidate_decisions
@@ -34,7 +34,7 @@ def _configure_styles(doc):
     fonts = normal.element.get_or_add_rPr().get_or_add_rFonts()
     for name, value in (("eastAsia", "宋体"), ("ascii", "Times New Roman"), ("hAnsi", "Times New Roman"), ("cs", "Times New Roman")): fonts.set(qn(f"w:{name}"), value)
     normal.font.size = Pt(12); normal.font.bold = False
-    normal.paragraph_format.first_line_indent = Cm(.74); normal.paragraph_format.line_spacing = 1.5; normal.paragraph_format.space_after = Pt(4)
+    normal.paragraph_format.first_line_indent = Pt(0); normal.paragraph_format.left_indent = Pt(0); normal.paragraph_format.right_indent = Pt(0); normal.paragraph_format.line_spacing = 1.5; normal.paragraph_format.space_after = Pt(4)
     for style_name, size in (("Heading 1", 15), ("Heading 2", 14)):
         style = doc.styles[style_name]; fonts = style.element.get_or_add_rPr().get_or_add_rFonts()
         for name, value in (("eastAsia", "黑体"), ("ascii", "Times New Roman"), ("hAnsi", "Times New Roman"), ("cs", "Times New Roman")): fonts.set(qn(f"w:{name}"), value)
@@ -46,7 +46,7 @@ def _heading(doc, text, level=1):
 
 
 def _body(doc, text):
-    paragraph = doc.add_paragraph(text); paragraph.paragraph_format.first_line_indent = Cm(.74)
+    paragraph = _format_body_paragraph(doc.add_paragraph(text), 12, line_spacing=1.5, space_after=Pt(4))
     for run in paragraph.runs: _set_run_fonts(run, bold=False, size=12)
     return paragraph
 
@@ -120,8 +120,9 @@ def generate_station_word_report(context):
     _configure_styles(doc)
     footer = section.footer.paragraphs[0]; footer.alignment = WD_ALIGN_PARAGRAPH.CENTER; _page_number(footer)
     info, variables = context["station_info"], context["variables"]
+    software = variables[0]["context"]["software_info"]
     doc.add_paragraph(info.get("report_title") or "站点环境监测综合报告", style="Title").alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for label, value in (("项目名称", info.get("project_name")), ("站点名称", info.get("site_name")), ("编制部门", info.get("department")), ("编制人", info.get("author"))):
+    for label, value in (("项目名称", info.get("project_name")), ("站点名称", info.get("site_name")), ("编制部门", info.get("department")), ("编制人", info.get("author")), ("业务内核版本", software["software_version"]), ("业务基线标签", software["git_tag"])):
         if value: _body(doc, f"{label}：{value}").paragraph_format.first_line_indent = Cm(0)
     doc.add_paragraph("报告生成日期：" + _date_only(variables[0]["context"]["software_info"]["generated_at"])); doc.add_page_break()
     _heading(doc, "1. 站点数据与质控汇总")

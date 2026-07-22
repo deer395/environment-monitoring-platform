@@ -33,6 +33,16 @@ STATION_EXPORT_CACHE_KEYS = (
 )
 
 
+def invalidate_report_template_cache(session_state, version_key, current_template_version, cache_keys) -> bool:
+    """Discard only one rendered-report cache when its template changes."""
+    if session_state.get(version_key) == current_template_version:
+        return False
+    for key in cache_keys:
+        session_state.pop(key, None)
+    session_state[version_key] = current_template_version
+    return True
+
+
 def variable_report_cache_keys(variable_key):
     """Return cached Word-output keys for exactly one variable."""
     return (f"{variable_key}:word_report_bytes", f"{variable_key}:word_report_filename")

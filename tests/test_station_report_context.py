@@ -35,3 +35,5 @@ def test_station_word_uses_compact_structure_and_two_overview_figures():
     assert "3. 各监测要素质控与统计分析" in text and "3.1 水深" in text and "3.9 多环芳烃" in text
     assert "图2-1" in text and "图2-2" in text
     assert "数据摘要：" not in text and "站点任务总结" not in text and "附录" not in text and "Git标签" not in text
+    assert "业务内核版本：V4.2" in text
+    assert "业务基线标签：v4.2-station-report-complete" in text

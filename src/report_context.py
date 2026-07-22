@@ -1,4 +1,4 @@
-"""Build deterministic, single-variable report data without Streamlit state."""
+﻿"""Build deterministic, single-variable report data without Streamlit state."""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ import pandas as pd
 
 from .variable_registry import get_variable_metadata
 from .time_series_interpretation import extract_time_series_features
+from .version import BUSINESS_BASELINE_TAG, BUSINESS_CORE_VERSION
 
 
-SOFTWARE_VERSION = "V4.1.1"
-BASELINE_TAG = "v3-general-variables-complete"
+SOFTWARE_VERSION = BUSINESS_CORE_VERSION
+BASELINE_TAG = BUSINESS_BASELINE_TAG
 
 
 def _timestamp(value):

@@ -7,6 +7,7 @@ from src.station_task import (
     clear_station_export_caches,
     clear_variable_result_caches,
     default_station_report_title,
+    invalidate_report_template_cache,
     require_station_export,
 )
 from src.variable_registry import get_variable_metadata, list_enabled_variables
@@ -59,6 +60,35 @@ def test_station_information_change_clears_every_report_and_station_export_cache
     assert not any(key.endswith("report_bytes") or key == "station_task:summary_excel_bytes" for key in state)
     assert state["depth:confirmed_qc_assets"]["final_qc_data"] == "keep"
 
+
+def test_station_word_template_change_clears_only_station_word_cache():
+    state = {
+        "station_task:station_word_report_bytes": b"old-word",
+        "station_task:station_word_report_filename": "old.docx",
+        "station_task:summary_excel_bytes": b"keep-excel",
+        "depth:confirmed_qc_assets": {"final_qc_data": "keep"},
+    }
+    changed = invalidate_report_template_cache(
+        state,
+        "station_task:station_word_report_template_version",
+        "station-template-test-v2",
+        ("station_task:station_word_report_bytes", "station_task:station_word_report_filename"),
+    )
+    assert changed
+    assert "station_task:station_word_report_bytes" not in state
+    assert "station_task:station_word_report_filename" not in state
+    assert state["station_task:summary_excel_bytes"] == b"keep-excel"
+    assert state["depth:confirmed_qc_assets"]["final_qc_data"] == "keep"
+    assert state["station_task:station_word_report_template_version"] == "station-template-test-v2"
+
+    state["station_task:station_word_report_bytes"] = b"new-word"
+    assert not invalidate_report_template_cache(
+        state,
+        "station_task:station_word_report_template_version",
+        "station-template-test-v2",
+        ("station_task:station_word_report_bytes", "station_task:station_word_report_filename"),
+    )
+    assert state["station_task:station_word_report_bytes"] == b"new-word"
 
 def test_one_variable_result_change_clears_its_word_and_station_export_only():
     state = {
