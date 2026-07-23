@@ -23,7 +23,7 @@ def _json_default(value: Any):
 
 def create_blind_figures(samples: list[dict], output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
+    plt.rcParams["font.sans-serif"] = ["Noto Sans CJK SC", "Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
     for sample in samples:
         monthly = sample["monthly"]

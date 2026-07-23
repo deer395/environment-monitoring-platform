@@ -32,7 +32,7 @@ plt.rcParams.update(
         "legend.fontsize": LEGEND_SIZE,
         "xtick.labelsize": TICK_SIZE,
         "ytick.labelsize": TICK_SIZE,
-        "font.sans-serif": ["Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"],
+        "font.sans-serif": ["Noto Sans CJK SC", "Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"],
         "axes.unicode_minus": False,
     }
 )

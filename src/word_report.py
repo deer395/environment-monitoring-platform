@@ -20,7 +20,7 @@ from docx.shared import Cm, Pt
 from .time_series_interpretation import MODE_LABELS
 
 
-plt.rcParams.update({"font.sans-serif": ["Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"], "axes.unicode_minus": False})
+plt.rcParams.update({"font.sans-serif": ["Noto Sans CJK SC", "Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"], "axes.unicode_minus": False})
 
 
 def _fmt(value, digits=None):
