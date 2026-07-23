@@ -1,4 +1,4 @@
-﻿data_private/
+data_private/
 outputs/
 *.xls
 *.xlsx
@@ -11,6 +11,11 @@ __pycache__/
 *.docx
 测试输出/
 .pytest-tmp/
+.pytest*/
+pytest-cache-files-*/
+pytest_format_temp_*/
+.workbuddy/
+.v5*.png
 evaluation_input_private/
 evaluation/monthly/sample_manifest.csv
 evaluation/monthly/annotation_template.xlsx
@@ -18,4 +23,8 @@ evaluation/monthly/baseline_predictions.json
 evaluation/monthly/baseline_review.xlsx
 evaluation/monthly/figures/
 evaluation/monthly/results/
+evaluation/monthly/development_*
+evaluation/monthly/holdout_*
+evaluation/monthly/iteration_*/
+evaluation/monthly/annotation_guideline_draft*.md
 11.txt
