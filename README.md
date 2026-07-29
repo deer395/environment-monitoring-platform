@@ -12,7 +12,9 @@
 
 👉 **[https://marine-monitoring-qc.streamlit.app/](https://marine-monitoring-qc.streamlit.app/)**
 
-已部署在 Streamlit Cloud，打开即可使用。选择变量、上传 Excel 文件（或使用内置示例数据），即可体验完整质控与分析流程。
+已部署在 Streamlit Cloud，打开即可使用。选择变量、上传 Excel 文件后即可体验完整质控与分析流程。
+
+> 💡 **没有数据？** 仓库 [`demo_data/`](demo_data/) 文件夹中提供了 9 种变量的脱敏示例数据，下载后上传即可快速体验。
 
 ## 项目概览
 
