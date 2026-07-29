@@ -2,6 +2,7 @@ data_private/
 outputs/
 *.xls
 *.xlsx
+!demo_data/*.xlsx
 *.mat
 *.nc
 .env
